@@ -38,16 +38,17 @@
 
 ### Tech Stack
 
-| Layer            | Technology                       |
-| ---------------- | -------------------------------- |
-| API Framework    | FastAPI + Uvicorn                |
-| Database         | MongoDB (via Motor async driver) |
-| Cache / Sessions | Redis (aioredis)                 |
-| Auth             | JWT (python-jose) + bcrypt       |
-| Payments         | Stripe API                       |
-| Real-Time        | WebSockets + Redis Pub/Sub       |
-| Testing          | pytest + httpx                   |
-| Deployment       | Docker + Railway/Render          |
+| Layer            | Technology                      |
+| ---------------- | ------------------------------- |
+| API Framework    | FastAPI + Uvicorn               |
+| Database         | PostgresSQL                     |
+| Media storage    | SeaweedFS (local S3)            |
+| Cache / Sessions | Redis (aioredis)                |
+| Auth             | JWT (python-jose) + bcrypt      |
+| Payments         | Stripe API                      |
+| Real-Time        | WebSockets + Redis Pub/Sub      |
+| Testing          | pytest + httpx                  |
+| Deployment       | Docker + Nginx + Railway/Render |
 
 ### Core API Endpoints
 

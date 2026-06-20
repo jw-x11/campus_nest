@@ -1,25 +1,24 @@
 import os
-from motor.motor_asyncio import AsyncIOMotorClient
+import asyncpg
 from dotenv import load_dotenv
 
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB = os.getenv("MONGO_DB", "summer_lease")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/summer_lease")
 
-client: AsyncIOMotorClient = None
+pool: asyncpg.Pool = None
 
 
-def get_db():
-    return client[MONGO_DB]
+def get_db() -> asyncpg.Pool:
+    return pool
 
 
 async def connect():
-    global client
-    client = AsyncIOMotorClient(MONGO_URI)
+    global pool
+    pool = await asyncpg.create_pool(DATABASE_URL)
 
 
 async def disconnect():
-    global client
-    if client:
-        client.close()
+    global pool
+    if pool:
+        await pool.close()

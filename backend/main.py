@@ -1,16 +1,21 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import connect as mongo_connect, disconnect as mongo_disconnect, get_db
+from database import connect as pg_connect, disconnect as pg_disconnect, get_db
 import redis_client
+import uvicorn
+
+from api.chat import api_chat
+from api.user import api_user
+from api.listing import api_listing
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await mongo_connect()
+    await pg_connect()
     await redis_client.connect()
     yield
-    await mongo_disconnect()
+    await pg_disconnect()
     await redis_client.disconnect()
 
 
@@ -22,6 +27,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(api_chat, prefix='/chat', tags=['chat'])
+app.include_router(api_listing, prefix='/listing', tags=['listing'])
+app.include_router(api_user, prefix='/user', tags=['user'])
 
 
 @app.get("/")
@@ -35,3 +44,8 @@ def user():
 @app.get("/api/status")
 def health():
     return {"status": "ok"}
+
+# TODO: Uninstall mongo and install postgres
+
+if __name__ == '__main__':
+    uvicorn.run('main:app', port=8000, reload=True)

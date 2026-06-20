@@ -1,0 +1,85 @@
+services:
+  database:
+    image: postgres:15-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+
+  seaweedfs-master:
+    image: chrislusf/seaweedfs
+    container_name: seaweedfs-master
+    ports:
+      - "9333:9333"
+      - "19333:19333"
+    command: master -ip=seaweedfs-master
+
+  seaweedfs-volume:
+    image: chrislusf/seaweedfs
+    container_name: seaweedfs-volume
+    ports:
+      - "8888:8888"
+      - "18888:18888"
+    command: volume -mserver=seaweedfs-master:9333 -port=8888 -ip=seaweedfs-volume
+    depends_on:
+      - seaweedfs-master
+    volumes:
+      - seaweedfs_data:/data
+
+  seaweedfs-s3:
+    image: chrislusf/seaweedfs
+    container_name: seaweedfs-s3
+    ports:
+      - "8333:8333"
+    command: s3 -filer=seaweedfs-filer:8888
+    depends_on:
+      - seaweedfs-filer
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs
+    container_name: seaweedfs-filer
+    ports:
+      - "8880:8880"
+      - "18880:18880"
+    command: filer -master=seaweedfs-master:9333
+    depends_on:
+      - seaweedfs-master
+    volumes:
+      - seaweedfs_filer_data:/data
+
+  dbhub:
+    image: bytebase/dbhub:latest
+    container_name: dbhub
+    ports:
+      - "8090:8080"
+    environment:
+      - DBHUB_LOG_LEVEL=info
+    command:
+      - --transport
+      - http
+      - --port
+      - "8080"
+      - --dsn
+      - "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}"
+    depends_on:
+      - database
+
+volumes:
+  postgres_data:
+  redis_data:
+  seaweedfs_data:
+  seaweedfs_filer_data:
