@@ -4,9 +4,9 @@
 
 | Enum | Values |
 |---|---|
-| `space_type` | `room`, `apartment`, `storage` |
 | `booking_status` | `pending`, `confirmed`, `cancelled`, `completed` |
 | `payment_status` | `pending`, `succeeded`, `failed`, `refunded` |
+| `payment_type` | `single`,`recurring_per_month`,`recurring_per_week` |
 
 ---
 
@@ -31,24 +31,29 @@ Stores student accounts and profile information.
 ---
 
 ### `spaces`
-Listings for rooms, apartments, or storage units available for sublease.
+Listings for storage spaces (closet, shelf, garage, basement, room) available to rent for storing belongings.
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
 | `id` | uuid | NO | `gen_random_uuid()` | Primary key |
 | `owner_id` | uuid | NO | — | FK → `users.id` |
-| `type` | space_type | NO | — | `room`, `apartment`, or `storage` |
 | `title` | text | NO | — | Listing headline |
 | `description` | text | YES | — | |
-| `address` | text | NO | — | |
+| `address` | text | NO | — | Street address (private; not shown until booking confirmed) |
 | `city` | text | NO | — | Indexed for search |
-| `price_per_month` | numeric(10,2) | NO | — | |
+| `postal_code` | text | YES | — | ZIP/postal code |
+| `latitude` | numeric(9,6) | YES | — | Exact geocoded lat (server-side only) |
+| `longitude` | numeric(9,6) | YES | — | Exact geocoded long (server-side only) |
+| `price` | numeric(10,2) | NO | — | |
+| `price_type` | payment_type | NO | — | |
 | `available_from` | date | NO | — | |
 | `available_to` | date | NO | — | |
 | `is_active` | boolean | NO | `true` | Hide without deleting |
-| `rules` | text | YES | — | House rules |
 | `created_at` | timestamptz | NO | `now()` | |
 | `updated_at` | timestamptz | NO | `now()` | |
+| `expired_at` | timestamptz | NO |  | |
+
+> **Geo notes:** `latitude`/`longitude` are populated by the Mapbox Geocoding API on create/update and are never returned to renters before a booking is confirmed. A fuzzed/approximate location (snapped to ~the block) is computed on the fly at request time from the exact coordinates — no stored approximate columns needed. For proximity/"near campus" search, filter on a bounding box over `latitude`/`longitude`, or enable **PostGIS** and add a `location geography(Point,4326)` generated column to use `ST_DWithin` for accurate radius queries.
 
 ---
 
@@ -152,6 +157,8 @@ Ratings submitted after a booking completes. Can review a space, a user, or both
 | `idx_spaces_owner` | spaces | `owner_id` | Fetch listings by owner |
 | `idx_spaces_city_type` | spaces | `city, type` | Search/filter listings |
 | `idx_spaces_dates` | spaces | `available_from, available_to` | Date range queries |
+| `idx_spaces_lat_lng` | spaces | `latitude, longitude` | Bounding-box proximity search |
+| `idx_spaces_location_gist` | spaces | `location` (geography) | PostGIS `ST_DWithin` radius search (optional) |
 | `idx_bookings_renter` | bookings | `renter_id` | My bookings |
 | `idx_bookings_space` | bookings | `space_id` | Space availability checks |
 | `idx_messages_convo` | messages | `conversation_id, created_at` | Chat history pagination |

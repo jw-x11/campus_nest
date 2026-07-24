@@ -1,51 +1,45 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import connect as pg_connect, disconnect as pg_disconnect, get_db
-import redis_client
 import uvicorn
 
-from api.chat import api_chat
-from api.user import api_user
-from api.listing import api_listing
+from config import db_config, cache_config
+from routers.auth import api_auth
+from routers.users import api_users
+from routers.spaces import api_spaces
+from routers.bookings import api_bookings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await pg_connect()
-    await redis_client.connect()
+    await db_config.connect()
+    await cache_config.connect()
     yield
-    await pg_disconnect()
-    await redis_client.disconnect()
+    await db_config.disconnect()
+    await cache_config.disconnect()
 
 
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app_router = APIRouter()
+app.include_router(app_router, prefix="/api")
 
-app.include_router(api_chat, prefix='/chat', tags=['chat'])
-app.include_router(api_listing, prefix='/listing', tags=['listing'])
-app.include_router(api_user, prefix='/user', tags=['user'])
+app_router.include_router(api_auth, prefix="/auth", tags=["auth"])
+app_router.include_router(api_users, prefix="/users", tags=["users"])
+app_router.include_router(api_spaces, prefix="/spaces", tags=["spaces"])
+app_router.include_router(api_bookings, prefix="/bookings", tags=["bookings"])
 
 
-@app.get("/")
-def read_root():
-    return {"message": "Hello from FastAPI!"}
-
-@app.get("/api/user")
-def user():
-    return {"user": "user"}
-
-@app.get("/api/status")
+@app.get("/api/health")
 def health():
     return {"status": "ok"}
 
-# TODO: Uninstall mongo and install postgres
 
-if __name__ == '__main__':
-    uvicorn.run('main:app', port=8000, reload=True)
+if __name__ == "__main__":
+    uvicorn.run("main:app", port=5000, reload=True)
