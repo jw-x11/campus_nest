@@ -19,7 +19,7 @@ Stores student accounts and profile information.
 |---|---|---|---|---|
 | `id` | uuid | NO | `gen_random_uuid()` | Primary key |
 | `email` | text | NO | — | Unique |
-| `password_hash` | text | NO | — | bcrypt hash |
+| `password` | text | NO | — | bcrypt hash |
 | `full_name` | text | NO | — | |
 | `phone` | text | YES | — | |
 | `university` | text | YES | — | For student verification |

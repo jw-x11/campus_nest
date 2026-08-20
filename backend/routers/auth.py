@@ -1,29 +1,17 @@
 from fastapi import APIRouter
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
+from utils.response import success_response
 
 api_auth = APIRouter()
 
-@api_auth.post("/login")
-async def login(request: LoginRequest):
-    """
-    Logs in a user with their email and password.
-    """
-    # TODO: implement login logic
-    pass
+@api_auth.get("/")
+async def root():
+    return success_response(message="Auth API")
 
 @api_auth.post("/register")
-async def register(request: RegisterRequest):
-    """
-    Registers a new user with their email and password.
-    """
-    # TODO: implement register logic
-    pass
+async def register(request):
+    data = {}
+    return success_response(message="Register successful", data=data)
 
-@api_auth.post("/logout")
-async def logout(request: LogoutRequest):
-    """
-    Logs out a user.
-    """
-    # TODO: implement logout logic
-    pass
+
 
