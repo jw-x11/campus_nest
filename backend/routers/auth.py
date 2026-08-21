@@ -15,6 +15,11 @@ async def root():
 
 @api_auth.post("/register")
 async def register(request: AuthRegisterRequest, db: AsyncSession = Depends(get_db)):
+    # check if user already exists
+    user = await get_user_by_email(db, request.email)
+    if user:
+        raise HTTPException(status_code=400, detail="User already exists")   
+    # create user
     data = await create_user(db, request)
     return success_response(message="Register successful", data=data)
 
@@ -32,3 +37,13 @@ async def logout(request):
     data = {}
     return success_response(message="Logout successful", data=data)
 
+
+@api_auth.post("/forgot-password")
+async def forgot_password(request):
+    data = {}
+    return success_response(message="Forgot password successful", data=data)
+
+@api_auth.post("/reset-password")
+async def reset_password(request):
+    data = {}
+    return success_response(message="Reset password successful", data=data)
