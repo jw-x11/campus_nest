@@ -64,7 +64,7 @@ Create a new account.
 {
   "email": "student@university.edu",
   "password": "min-8-chars",
-  "full_name": "Jane Doe"
+  "username": "Jane Doe"
 }
 ```
 - **Response `201`** — the created user profile (see `UserResponse` in §2).
@@ -135,7 +135,7 @@ Router file: `backend/routers/users.py` (already scaffolded).
 {
   "id": "uuid",
   "email": "student@university.edu",
-  "full_name": "Jane Doe",
+  "username": "Jane Doe",
   "phone": "+1...",
   "university": "State U",
   "is_verified": true,
@@ -156,7 +156,7 @@ Update editable fields.
 - **Auth:** required
 - **Request** (all optional)
 ```json
-{ "full_name": "New Name", "phone": "+1...", "university": "State U" }
+{ "username": "New Name", "phone": "+1...", "university": "State U" }
 ```
 - **Response `200`:** updated `UserResponse`.
 - **Logic:** email is **not** editable here (needs separate verification flow). Update

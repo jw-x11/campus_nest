@@ -18,3 +18,4 @@ frontend/dist/
 .mcp.json
 .claude
 .cursor
+.vscode

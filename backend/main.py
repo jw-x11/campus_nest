@@ -13,10 +13,8 @@ from routers.bookings import api_bookings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db_config.connect()
-    await cache_config.connect()
     yield
     await db_config.disconnect()
-    await cache_config.disconnect()
 
 
 app = FastAPI(lifespan=lifespan)

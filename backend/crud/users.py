@@ -18,7 +18,7 @@ async def create_user(session: AsyncSession, user_data: AuthRegisterRequest):
     user = User(
         email=user_data.email,
         password=hashed_password,
-        full_name=user_data.full_name,
+        username=user_data.username,
     )
     session.add(user)
     await session.commit()
