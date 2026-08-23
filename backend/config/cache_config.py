@@ -16,7 +16,7 @@ async def get_cache(key: str) -> str | None:
     try:
         return await redis_client.get(key)
     except Exception as e:
-        print(f"Error getting cache: {e}")
+        print(f"Cache Not Found")
         return None
 
 # Get cache by key and return as object

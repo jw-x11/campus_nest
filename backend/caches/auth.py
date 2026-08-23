@@ -17,7 +17,6 @@ async def create_token(user_id: str) -> dict:
     return token
 
 
-
 async def get_user_id_by_token(token: str) -> str | None:
     """Resolve a token to a user_id, or None if missing/expired."""
     return await get_cache(_token_key(token))

@@ -3,7 +3,8 @@ from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from config import db_config, cache_config
+from config import db_config
+from config.exception_handlers import register_exception_handlers
 from routers.auth import api_auth
 from routers.users import api_users
 from routers.spaces import api_spaces
@@ -18,6 +19,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,4 +43,4 @@ def health():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", port=5000, reload=True)
+    uvicorn.run("main:app", port=5001, reload=True)
