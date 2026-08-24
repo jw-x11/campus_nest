@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
+from models.users import User
 from utils.response import success_response
 from utils.auth import verify_password
 
 from crud.users import create_user, get_user_by_email, get_user_by_username
+from crud.auth import change_password
 from config.db_config import get_db
-from caches.auth import create_token
+from caches.auth import create_token, revoke_token
 
-from schemas.auth import AuthRegisterRequest, AuthLoginResponse, AuthLoginRequest
+from schemas.auth import AuthRegisterRequest, AuthLoginResponse, AuthLoginRequest, ChangePasswordRequest
 from schemas.users import UserInfoResponse
+import utils.user as user_dep
 
 api_auth = APIRouter()
 
@@ -59,17 +62,22 @@ async def login(request: AuthLoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @api_auth.post("/logout")
-async def logout(request):
-    
-    return success_response(message="Logout successful", data={})
+async def logout(db: AsyncSession = Depends(get_db), user : User = Depends(user_dep.get_current_user), authorization: str = Header(...)):
+    token = authorization.split(" ")[1]
+    await revoke_token(token)
+    return success_response(message=f"User {user.username} logged out successfully", data=None)
 
-
-@api_auth.post("/forgot-password")
-async def forgot_password(request):
-    data = {}
-    return success_response(message="Forgot password successful", data=data)
 
 @api_auth.post("/reset-password")
-async def reset_password(request):
-    data = {}
-    return success_response(message="Reset password successful", data=data)
+async def reset_password(request: ChangePasswordRequest, db: AsyncSession = Depends(get_db), user : User = Depends(user_dep.get_current_user), authorization: str = Header(...)):
+    '''
+    Reset password for a user
+    '''
+    old_password = user.password
+    if not verify_password(request.old_password, old_password):
+        raise HTTPException(status_code=400, detail="Invalid old password")
+    result = await change_password(db, user, request.new_password)
+    if not result:
+        raise HTTPException(status_code=400, detail="Failed to reset password")
+    await revoke_token(authorization.split(" ")[1])
+    return success_response(message="Password reset successful", data=None)

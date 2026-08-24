@@ -21,3 +21,7 @@ class AuthLoginResponse(BaseModel):
         populate_by_name=True,
         form_attributes=True
     )
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str

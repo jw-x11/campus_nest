@@ -21,3 +21,14 @@ class UserInfoResponse(BaseModel):
     @classmethod
     def coerce_id_to_str(cls, v):
         return str(v)
+
+class UserUpdateRequest(BaseModel):
+    id: str | None = None
+    email: str | None = None
+    username: str | None = None
+    phone: str | None = None
+    university: str | None = None
+    avatar_url: str | None = None
+    is_verified: bool = False
+
+    

@@ -1,5 +1,19 @@
-from sqlalchemy import insert, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.users import User
-from schemas.auth import AuthRegisterRequest
+from utils.auth import hash_password
+
+
+async def change_password(session: AsyncSession, user: User, new_password: str) -> bool:
+
+    user.password = hash_password(new_password)
+    try:
+        session.add(user)
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        return False
+
+    await session.refresh(user)
+    return True
