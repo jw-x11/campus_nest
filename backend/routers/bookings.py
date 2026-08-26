@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from datetime import date
 from typing import Literal
-from routers.deps import get_current_user
+from utils.deps import get_current_user
 
 api_bookings = APIRouter()
 

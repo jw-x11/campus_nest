@@ -1,44 +1,59 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 from typing import Literal
-from routers.deps import get_current_user
+
+from utils.deps import get_current_user
+from models.users import User
+from config.db_config import get_db
+from schemas.spaces import SpaceRequest, SpaceResponse
+from utils.response import success_response
+from crud.spaces import create_space, get_space_by_id
 
 api_spaces = APIRouter()
 
 
-class SpaceRequest(BaseModel):
-    type: Literal["room", "apartment", "storage"]
-    title: str
-    description: str | None = None
-    address: str
-    city: str
-    price_per_month: float
-    available_from: date
-    available_to: date
-    rules: str | None = None
+
+@api_spaces.get("/")
+async def root(user: User = Depends(get_current_user)):
+    return success_response(message=f"Hello {user.username}", data=None)
 
 
-class SpaceResponse(BaseModel):
-    id: str
-    owner_id: str
-    type: str
-    title: str
-    description: str | None
-    address: str
-    city: str
-    price_per_month: float
-    available_from: date
-    available_to: date
-    is_active: bool
-    rules: str | None
-    images: list[str] = []
 
 
-@api_spaces.post("/", response_model=SpaceResponse, status_code=201)
-async def create_space(body: SpaceRequest, user_id: str = Depends(get_current_user)):
-    # TODO: insert space into DB
+@api_spaces.post("/post")
+async def post_space(body: SpaceRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    try:   
+        space = await create_space(db, body, user.id)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    return success_response(message="Space created", data=space)
+
+
+
+
+
+@api_spaces.get("/{space_id}")
+async def get_space(space_id: str, db: AsyncSession = Depends(get_db)):
+    space = await get_space_by_id(db, space_id)
+    if not space:
+        raise HTTPException(status_code=404, detail="Space not found")
+    return success_response(message="Space found", data=space)
+
+
+
+
+
+
+@api_spaces.put("/{space_id}")
+async def renew_space(space_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     pass
+
+
+
+
+
 
 
 @api_spaces.get("/", response_model=list[SpaceResponse])
@@ -54,10 +69,6 @@ async def search_spaces(
     pass
 
 
-@api_spaces.get("/{space_id}", response_model=SpaceResponse)
-async def get_space(space_id: str):
-    # TODO: fetch from Redis cache, fallback to DB
-    pass
 
 
 @api_spaces.put("/{space_id}", response_model=SpaceResponse)

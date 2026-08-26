@@ -7,7 +7,7 @@ from utils.response import success_response
 
 from crud.users import update_user
 from config.db_config import get_db
-import utils.user as user_dep
+import utils.deps as user_dep
 
 api_users = APIRouter()
 

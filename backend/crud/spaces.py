@@ -1,0 +1,50 @@
+from fastapi import HTTPException
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
+from datetime import datetime, timedelta, timezone
+
+from schemas.spaces import SpaceRequest
+from models.spaces import Space
+
+# Listings are auto-hidden one month after creation, and are renewable until then.
+LISTING_LIFETIME = timedelta(days=30)
+
+
+
+async def create_space(db: AsyncSession, body: SpaceRequest, user_id: UUID):
+
+    space = Space(
+        owner_id=user_id,
+        title=body.title,
+        description=body.description,
+        address=body.address,
+        city=body.city,
+        postal_code=body.postal_code,
+        latitude=body.latitude,
+        longitude=body.longitude,
+        price=body.price,
+        price_type=body.price_type,
+        available_from=body.available_from,
+        available_to=body.available_to,
+        expired_at=datetime.now(timezone.utc) + LISTING_LIFETIME,
+    )
+    db.add(space)
+    await db.commit()
+    await db.refresh(space)
+    return space
+
+
+
+
+async def get_space_by_id(db: AsyncSession, space_id: UUID):
+    stm = select(Space).where(Space.id == space_id)
+    space = await db.execute(stm)
+    return space.scalar_one_or_none()
+
+
+
+async def update_space_expired_at(db: AsyncSession, space_id: UUID):
+    stm = update(Space).where(Space.id == space_id).values(expired_at=datetime.now(timezone.utc) + LISTING_LIFETIME)
+    await db.execute(stm)
+    await db.commit()

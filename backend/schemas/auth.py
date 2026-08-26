@@ -14,7 +14,7 @@ class AuthLoginRequest(BaseModel):
     password: str
 
 class AuthLoginResponse(BaseModel):
-    user_info: Annotated[UserInfoResponse, Field(..., alias="userInfo")]
+    user_info: Annotated[UserInfoResponse, Field(alias="userInfo")]
     token: str
 
     model_config = ConfigDict(

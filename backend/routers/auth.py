@@ -11,7 +11,7 @@ from caches.auth import create_token, revoke_token
 
 from schemas.auth import AuthRegisterRequest, AuthLoginResponse, AuthLoginRequest, ChangePasswordRequest
 from schemas.users import UserInfoResponse
-import utils.user as user_dep
+import utils.deps as user_dep
 
 api_auth = APIRouter()
 
