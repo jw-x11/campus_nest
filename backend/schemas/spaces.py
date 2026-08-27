@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from datetime import date
 from typing import Literal, Annotated
 
-class SpaceRequest(BaseModel):
+class SpaceInfoRequest(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=255)]
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str

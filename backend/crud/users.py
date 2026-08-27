@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
@@ -34,7 +35,7 @@ async def get_user_by_token(session: AsyncSession, token: str) -> User | None:
         return None
     return user
 
-async def create_user(session: AsyncSession, user_data: AuthRegisterRequest):
+async def create_user(session: AsyncSession, user_data: AuthRegisterRequest) -> User:
     hashed_password = hash_password(user_data.password)
     user = User(
         email=user_data.email,
@@ -47,14 +48,19 @@ async def create_user(session: AsyncSession, user_data: AuthRegisterRequest):
     return user
 
 
-async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRequest):
+async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRequest) -> User | None:
     # Pydantic convert to dict then convert into sqlalchemy orm
-    query = update(User).where(User.email == email).values(**user_data.model_dump(exclude_unset=True, exclude_none=True))
+    update_at = datetime.now(timezone.utc)
+    query = update(User).where(User.email == email).values(**user_data.model_dump(exclude_unset=True, exclude_none=True), updated_at=update_at)
     result = await session.execute(query)
     await session.commit()
     
     if result.rowcount == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        return None
 
     updated_user = await get_user_by_email(session, email)
     return UserInfoResponse.model_validate(updated_user)
+
+
+async def soft_delete_user(session: AsyncSession, user: User) -> bool:
+    pass

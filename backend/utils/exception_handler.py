@@ -1,9 +1,13 @@
 import traceback
 
-from fastapi import HTTPException, Request
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from starlette import status
+# Starlette's HTTPException is the parent of FastAPI's, so handling it also
+# covers framework-raised errors such as unmatched routes and 405s.
+from starlette.exceptions import HTTPException
 
 
 DEBUG_MODE = True
@@ -21,6 +25,31 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     }
 
 )
+
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """
+    Handle request validation failures: bad path/query params, headers or body
+    """
+    # Build plain dicts rather than returning exc.errors() directly: each entry
+    # can carry a "ctx" holding the original exception, which is not JSON serializable.
+    errors = [
+        {
+            "source": error["loc"][0] if error["loc"] else None,
+            "field": ".".join(str(part) for part in error["loc"][1:]),
+            "message": error["msg"],
+        }
+        for error in exc.errors()
+    ]
+
+    return JSONResponse(
+        status_code=400,
+        content={
+            "code": 400,
+            "message": "Invalid request",
+            "data": errors if DEBUG_MODE else None
+        }
+    )
+
 
 async def integrity_error_handler(request: Request, exc: IntegrityError):
     """

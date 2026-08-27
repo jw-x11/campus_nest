@@ -247,7 +247,7 @@ Create a listing.
     delete at 3 months).
 - **Errors:** `400 GEOCODE_FAILED`, `422` validation (e.g. `available_to < available_from`).
 
-### 3.2 `GET /spaces`
+### 3.2 `GET /spaces/all`
 Search/list with filters. **Cached in Redis.**
 
 - **Auth:** none
@@ -265,7 +265,7 @@ Search/list with filters. **Cached in Redis.**
   | `page_size` | int | default 20, cap 100 |
 - **Response `200`**
 ```json
-{ "results": [ /* SpaceResponse[] */ ], "total": 137, "page": 1, "page_size": 20 }
+{ "results": [ /* SpaceInfoResponse[] */ ], "total": 137, "page": 1, "page_size": 20 }
 ```
 - **Logic**
   - Only return `is_active = true` AND `expired_at > now()`.
