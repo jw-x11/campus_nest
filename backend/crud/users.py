@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
@@ -62,5 +63,17 @@ async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRe
     return UserInfoResponse.model_validate(updated_user)
 
 
-async def soft_delete_user(session: AsyncSession, user: User) -> bool:
-    pass
+async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
+    deleted_user_data = {
+        "username": "Deleted User",
+        "university": None,
+        "avatar_url": None,
+        "is_verified": False,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    query = update(User).where(User.id == user_id).values(**deleted_user_data)
+    result = await session.execute(query)
+    await session.commit()
+    if result.rowcount == 0:
+        return False
+    return True
