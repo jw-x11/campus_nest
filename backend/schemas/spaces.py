@@ -35,6 +35,8 @@ class SpaceItem(BaseModel):
     available_from: date
     available_to: date
 
+    view_count: int
+
     created_at: datetime
     updated_at: datetime
 
@@ -53,7 +55,7 @@ class SpaceSearchQuery(BaseModel):
     page: Annotated[int, Field(ge=1, alias="pg")] = 1
     page_size: Annotated[int, Field(ge=1, le=100, alias="pg-size")] = DEFAULT_PAGE_SIZE
 
-    sort_by: Annotated[Literal["location", "price"] | None, Field(alias="sort")] = None # none means no sorting
+    sort_by: Annotated[Literal["location", "price", "post_date"] | None, Field(alias="sort")] = None # none means no sorting
     sort_order: Annotated[Literal["asc", "desc"] | None, Field(alias="order")] = None # none means the natural default for sort_by
 
 

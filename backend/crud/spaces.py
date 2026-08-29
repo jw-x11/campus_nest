@@ -1,9 +1,8 @@
-from sqlalchemy import select, update, exists, delete, func, or_
+from sqlalchemy import select, update, exists, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 
-from utils.exceptions import PermissionDeniedError
 from schemas.spaces import SpaceInfoRequest, SpaceSearchQuery
 from models.spaces import Space
 
@@ -52,25 +51,17 @@ async def get_space_by_id(db: AsyncSession, space_id: UUID):
 
 
 
-async def update_space_expired_at(db: AsyncSession, space_id: UUID, user_id: UUID) -> bool:
-    if not await verify_space_ownership(db, space_id, user_id):
-        raise PermissionDeniedError
-    
+async def update_space_expired_at(db: AsyncSession, space_id: UUID) -> bool:
     expired_at = datetime.now(timezone.utc) + LISTING_LIFETIME
     stm = update(Space).where(Space.id == space_id).values(expired_at=expired_at)
 
     result = await db.execute(stm)
     await db.commit()
-    if result.rowcount == 0:
-        return False
-    return True
+    return result.rowcount > 0
 
 
 
-async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: UUID, owner_id: UUID) -> Space | None:
-    if not await verify_space_ownership(db, space_id, owner_id):
-        raise PermissionDeniedError
-
+async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: UUID) -> Space | None:
     update_at = datetime.now(timezone.utc)
     expired_at = datetime.now(timezone.utc) + LISTING_LIFETIME
 
@@ -88,16 +79,46 @@ async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: U
     return updated_space
 
 
-async def delete_space_by_id(db: AsyncSession, space_id: UUID, owner_id: UUID) -> bool:
-    if not await verify_space_ownership(db, space_id, owner_id):
-        raise PermissionDeniedError
+async def set_space_inactive(db: AsyncSession, space_id: UUID) -> bool:
 
-    stm = delete(Space).where(Space.id == space_id, Space.owner_id == owner_id)
+    stm = (
+        update(Space)
+        .where(Space.id == space_id, Space.is_active.is_(True))
+        .values(is_active=False, updated_at=datetime.now(timezone.utc))
+    )
     result = await db.execute(stm)
     await db.commit()
-    if result.rowcount == 0:
-        return False
-    return True
+    return result.rowcount > 0
+
+
+
+
+async def set_space_active(db: AsyncSession, space_id: UUID) -> bool:
+    stm = update(Space).where(Space.id == space_id, Space.is_active.is_(False)).values(is_active=True, updated_at=datetime.now(timezone.utc))
+    result = await db.execute(stm)
+    await db.commit()
+    return result.rowcount > 0
+
+
+
+
+async def get_all_spaces_by_owner(db: AsyncSession, owner_id: UUID, page: int, page_size: int) -> tuple[list[Space], int]:
+
+    count_stm = select(func.count()).select_from(Space).where(Space.owner_id == owner_id)
+    count_result = await db.execute(count_stm)
+    total_count = count_result.scalar_one()
+
+    offset = (page - 1) * page_size
+    stm = (
+        select(Space).where(Space.owner_id == owner_id)
+            .order_by(Space.updated_at.desc())
+            .offset(offset).limit(page_size)
+        )
+
+    result = await db.execute(stm)
+    return list[Space](result.scalars().all()), total_count
+
+
 
 
 async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[Space], int]:
@@ -129,6 +150,8 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
         sort_columns, default_order = [Space.price], "asc"
     elif filters.sort_by == "location":
         sort_columns, default_order = [Space.city, Space.postal_code, Space.address], "asc"
+    elif filters.sort_by == "post_date":
+        sort_columns, default_order = [Space.created_at], "desc"
     else:
         sort_columns, default_order = [Space.created_at], "desc"
 
@@ -151,3 +174,10 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
     result = await db.execute(stm)
     return list[Space](result.scalars().all()), total_count
 
+
+
+async def increase_view_count(db: AsyncSession, space_id: UUID) -> bool:
+    stm = update(Space).where(Space.id == space_id).values(view_count=Space.view_count + 1)
+    result = await db.execute(stm)
+    await db.commit()
+    return result.rowcount > 0

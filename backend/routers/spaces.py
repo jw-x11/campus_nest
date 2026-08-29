@@ -4,22 +4,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from uuid import UUID
 
-from utils.exceptions import PermissionDeniedError
 from utils.deps import get_current_user
 from models.users import User
 from config.db_config import get_db
 from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceListResponse, SpaceSearchQuery
 from utils.response import success_response
-from crud.spaces import create_space, delete_space_by_id, get_space_by_id, get_space_list, update_space_expired_at, update_space_info
+from crud.spaces import (
+    create_space,
+    get_space_by_id,
+    get_space_list,
+    set_space_inactive,
+    update_space_expired_at,
+    update_space_info,
+    verify_space_ownership,
+)
 
+# Router: /api/spaces
 api_spaces = APIRouter()
+
 
 # TODO: All redis cache operations
 
 
+async def require_space_owner(db: AsyncSession, space_id: UUID, user_id: UUID) -> None:
+    if not await verify_space_ownership(db, space_id, user_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
 
-@api_spaces.get("/")
-async def root(user: Annotated[User, Depends(get_current_user)]):
+
+@api_spaces.get("/status")
+async def status(user: Annotated[User, Depends(get_current_user)]):
     return success_response(message=f"Hello {user.username}", data=None)
 
 
@@ -63,7 +77,8 @@ async def get_space(space_id: UUID, db: Annotated[AsyncSession, Depends(get_db)]
     space = await get_space_by_id(db, space_id)
     if not space:
         raise HTTPException(status_code=404, detail="Space not found")
-    return success_response(message="Space found", data=space)
+    space_info = SpaceItem.model_validate(space)
+    return success_response(message="Space found", data=space_info)
 
 
 
@@ -76,10 +91,8 @@ async def renew_space(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    try:
-        result = await update_space_expired_at(db, space_id, user.id)
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    await require_space_owner(db, space_id, user.id)
+    result = await update_space_expired_at(db, space_id)
     if not result:
         raise HTTPException(status_code=404, detail="Space not found")
     return success_response(message="Space renewed", data=None)
@@ -97,10 +110,8 @@ async def update_space(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    try:
-        result = await update_space_info(db, body, space_id, user.id)
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    await require_space_owner(db, space_id, user.id)
+    result = await update_space_info(db, body, space_id)
     if not result:
         raise HTTPException(status_code=404, detail="Space not found")
     return success_response(message="Space updated", data=result)
@@ -117,21 +128,10 @@ async def delete_space(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    try:
-        result = await delete_space_by_id(db, space_id, user.id)
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    await require_space_owner(db, space_id, user.id)
+    result = await set_space_inactive(db, space_id)
     if not result:
         raise HTTPException(status_code=404, detail="Space not found")
     return success_response(message="Space deleted", data=None)
 
 
-
-
-
-@api_spaces.get("")
-async def is_favorited_by_user(
-    user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    pass

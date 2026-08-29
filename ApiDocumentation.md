@@ -212,6 +212,8 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
   "available_to": "2026-08-15",
   "is_active": true,
   "expired_at": "2026-07-22T00:00:00Z",
+  "view_count": 142,
+  "is_saved": false,
   "images": ["https://seaweedfs/.../1.jpg"],
   "avg_rating": 4.6
 }
@@ -220,7 +222,7 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
 > renters. Return only `city`, `postal_code`, and a **fuzzed** `approx_location` (snapped to
 > the block, computed on the fly). Exact address is revealed only after a booking is confirmed.
 
-### 3.1 `POST /spaces`
+### 3.1 `POST /spaces/post`
 Create a listing.
 
 - **Auth:** required
@@ -279,8 +281,11 @@ Listing detail. **Cached in Redis.**
 
 - **Auth:** none
 - **Response `200`:** `SpaceResponse` (+ `images`, `avg_rating`; optionally owner summary).
-- **Logic:** read-through cache `space:{id}` (TTL 10 min). Increment a view counter (for
-  analytics) out of band. Still fuzz location.
+- **Logic:** read-through cache `space:{id}` (TTL 10 min). Still fuzz location. If the
+  caller is authenticated, record the view via the same write path as `POST /history/{space_id}`
+  (§5.1) so `view_history` and `spaces.view_count` stay in sync. If this GET is served
+  entirely from cache, the client should still call `POST /history/{space_id}`. Optionally
+  include `is_saved` when a token is present (§4.4).
 - **Errors:** `404 SPACE_NOT_FOUND`.
 
 ### 3.4 `PUT /spaces/{id}`
@@ -319,10 +324,162 @@ Upload photos (up to 10 per listing).
 > within the bounding box + a true total count, capped at ~200–300 markers with fuzzed
 > coordinates. Cache under a rounded-bounds key (short TTL). Ships with the Zillow-style map
 > ("Search this area" button); not required for MVP list view.
+>
+> **Saved / views.** When the caller is authenticated, include `is_saved` on `SpaceResponse`
+> (and on each card in `GET /spaces/all`) via an `EXISTS` on `saved_spaces` — see §4.4.
+> Recording a view is §5 (`POST /history/{space_id}`), not a field on this router.
 
 ---
 
-## 4. Bookings  (`/api/bookings`)
+## 4. Saved Spaces  (`/api/saved`)
+
+Watchlist / heart-toggle. Router file: `backend/routers/saved_space.py`.
+This is a **user collection**, not listing CRUD — do not put these on `/api/spaces`.
+
+Table: `saved_spaces` (composite PK `(user_id, space_id)`). There is no `saved_count` on
+`spaces` — totals are `COUNT(*)` on this table.
+
+### Shared schema — `SavedSpaceItem`
+A listing card plus when the caller saved it. Reuse the public `SpaceResponse` fields from §3
+(fuzzed location; omit exact address).
+
+```json
+{
+  "space": { /* SpaceResponse */ },
+  "saved_at": "2026-07-22T10:00:00Z"
+}
+```
+
+### 4.1 `GET /saved/list`
+The caller's saved list, newest first.
+
+- **Auth:** required
+- **Query**
+  | Param | Type | Notes |
+  |---|---|---|
+  | `page` | int | default 1 |
+  | `page_size` | int | default 25, cap 100 |
+- **Response `200`**
+```json
+{
+  "results": [ /* SavedSpaceItem[] */ ],
+  "total": 12,
+  "page": 1,
+  "page_size": 25
+}
+```
+- **Logic:** `saved_spaces` for `user_id = caller`, join `spaces`, order by
+  `saved_spaces.created_at DESC`. Skip inactive/expired listings or include them with
+  `is_active: false` so the UI can show "no longer available" — pick one and stay consistent.
+- **Errors:** `401`.
+
+### 4.2 `POST /saved/{space_id}`
+Save (favorite) a listing. Idempotent.
+
+- **Auth:** required
+- **Response `201`:** `SavedSpaceItem` if a new row was inserted; **`200`** if it was already
+  saved (same body). Either is fine as long as the client treats both as "now saved".
+- **Logic**
+  - `404 SPACE_NOT_FOUND` if the space does not exist or is inactive.
+  - `INSERT INTO saved_spaces (user_id, space_id) ... ON CONFLICT (user_id, space_id) DO NOTHING`.
+  - Caller should not be able to "save" their own listing if you want that rule → `400`.
+- **Errors:** `401`, `404`.
+
+### 4.3 `DELETE /saved/{space_id}`
+Unsave a listing. Idempotent.
+
+- **Auth:** required
+- **Response `204`**
+- **Logic:** `DELETE FROM saved_spaces WHERE user_id = caller AND space_id = :id`. If no
+  row existed, still return `204` (second tap / stale UI).
+- **Errors:** `401`. (`404` only if you want "was not saved" to be visible; not required.)
+
+### 4.4 `GET /saved/{space_id}`
+Whether the caller has saved this listing. Used to initialize the heart without downloading
+the full watchlist.
+
+- **Auth:** required
+- **Response `200`**
+```json
+{ "space_id": "uuid", "saved": true }
+```
+- **Errors:** `401`. Always `200` with `saved: false` if there is no row (do not 404).
+
+> **Not in this router.** A listing-wide save total is `COUNT(*)` from `saved_spaces` (optional
+> on `SpaceResponse`). Per-user `is_saved` on listing payloads (when a token is present) is an
+> `EXISTS` on this table, not a separate write API.
+
+---
+
+## 5. View History  (`/api/history`)
+
+Recently viewed listings. Router file: create `backend/routers/view_history.py`.
+One row per `(user_id, space_id)`; a re-view updates `viewed_at` instead of inserting again.
+
+Tables: `view_history`, denormalized `spaces.view_count` (total views, **including re-views**).
+
+Anonymous (logged-out) browsing is **not** stored. `GET /spaces/{id}` may call the same write
+path when the caller is authenticated; `POST /history/{space_id}` exists so a cache hit on
+the listing does not skip the write, and so the client can record a view without refetching.
+
+### Shared schema — `ViewHistoryItem`
+```json
+{
+  "space": { /* SpaceResponse */ },
+  "viewed_at": "2026-07-22T10:00:00Z"
+}
+```
+
+### 5.1 `POST /history/{space_id}`
+Record that the caller viewed this listing.
+
+- **Auth:** required
+- **Response `200`:** `ViewHistoryItem` (or empty `200` if you do not need the body).
+- **Logic**
+  - `404 SPACE_NOT_FOUND` if the space does not exist.
+  - `INSERT ... ON CONFLICT (user_id, space_id) DO UPDATE SET viewed_at = now()`.
+  - **Always** increment `spaces.view_count` (re-views count). Same transaction as the upsert.
+  - Optional: skip increment if the last view was within N seconds (debounce refresh spam).
+- **Errors:** `401`, `404`.
+
+### 5.2 `GET /history/list`
+The caller's recently viewed list, newest first.
+
+- **Auth:** required
+- **Query:** `page`, `page_size` (same defaults as `/saved`).
+- **Response `200`**
+```json
+{
+  "results": [ /* ViewHistoryItem[] */ ],
+  "total": 8,
+  "page": 1,
+  "page_size": 25
+}
+```
+- **Logic:** `view_history` for `user_id = caller`, join `spaces`, order by `viewed_at DESC`
+  (`idx_view_history_user_time`). Inactive listings: same choice as `/saved` (hide vs show
+  as unavailable).
+- **Errors:** `401`.
+
+### 5.3 `DELETE /history/{space_id}`
+Remove one listing from the caller's history.
+
+- **Auth:** required
+- **Response `204`**
+- **Logic:** delete the `(caller, space_id)` row. **Do not** decrement `spaces.view_count`
+  (that is a lifetime total, not "currently in someone's history").
+- **Errors:** `401`. Idempotent if the row is already gone.
+
+### 5.4 `DELETE /history/clear`
+Clear the caller's entire history.
+
+- **Auth:** required
+- **Response `204`**
+- **Logic:** `DELETE FROM view_history WHERE user_id = caller`. Do not touch `view_count`.
+
+---
+
+## 6. Bookings  (`/api/bookings`)
 
 Router file: `backend/routers/bookings.py`.
 **States:** `pending` → `confirmed` → `active` → `completed` | `cancelled` | `declined`.
@@ -342,7 +499,7 @@ Router file: `backend/routers/bookings.py`.
 }
 ```
 
-### 4.1 `POST /bookings`
+### 6.1 `POST /bookings`
 Request a booking (with Redis availability lock to prevent double-booking).
 
 - **Auth:** required
@@ -359,7 +516,7 @@ Request a booking (with Redis availability lock to prevent double-booking).
   4. Release/rely on lock TTL once persisted.
 - **Errors:** `400` bad dates, `404` space, `409` unavailable/double-book.
 
-### 4.2 `GET /bookings/me`
+### 6.2 `GET /bookings/me`
 List the caller's bookings.
 
 - **Auth:** required
@@ -367,7 +524,7 @@ List the caller's bookings.
 - **Response `200`:** `BookingResponse[]` (by default where `renter_id == caller`; add lister
   view for bookings on the caller's spaces).
 
-### 4.3 `PATCH /bookings/{id}/cancel`
+### 6.3 `PATCH /bookings/{id}/cancel`
 Cancel a booking.
 
 - **Auth:** owner (renter who made it, or lister of the space)
@@ -381,7 +538,7 @@ Cancel a booking.
 
 ---
 
-## 5. Messages  (`/api/conversations`, `/api/ws`)
+## 7. Messages  (`/api/conversations`, `/api/ws`)
 
 > **Phase note:** PRD §8 says MVP Phase 1 is **Craigslist-style (no in-app messaging)** and
 > WebSocket chat lands in **Phase 2**. Build the REST history endpoints first; add the
@@ -409,14 +566,14 @@ Cancel a booking.
 }
 ```
 
-### 5.1 `GET /conversations`
+### 7.1 `GET /conversations`
 List the caller's conversations.
 
 - **Auth:** required
 - **Response `200`:** `ConversationResponse[]` where caller is `lister_id` or `renter_id`,
   sorted by `updated_at` desc.
 
-### 5.2 `GET /conversations/{id}/messages`
+### 7.2 `GET /conversations/{id}/messages`
 Message history (paginated).
 
 - **Auth:** participant only
@@ -425,7 +582,7 @@ Message history (paginated).
   `idx_messages_convo`).
 - **Errors:** `403 NOT_PARTICIPANT`, `404`.
 
-### 5.3 `WS /ws/{conversation_id}`  *(Phase 2)*
+### 7.3 `WS /ws/{conversation_id}`  *(Phase 2)*
 Real-time chat.
 
 - **Auth:** token passed on connect (query param or subprotocol); must be a participant.
@@ -435,7 +592,7 @@ Real-time chat.
 
 ---
 
-## 6. Reviews  (`/api/reviews`, plus reads on spaces/users)
+## 8. Reviews  (`/api/reviews`, plus reads on spaces/users)
 
 Router file: create `backend/routers/reviews.py` and register it in `main.py`.
 
@@ -453,7 +610,7 @@ Router file: create `backend/routers/reviews.py` and register it in `main.py`.
 }
 ```
 
-### 6.1 `POST /reviews`
+### 8.1 `POST /reviews`
 Submit a review after a booking completes.
 
 - **Auth:** required
@@ -471,14 +628,14 @@ Submit a review after a booking completes.
   - Invalidate `rating:{space_id}` cache.
 - **Errors:** `400 BOOKING_NOT_COMPLETED`, `403`, `409`.
 
-### 6.2 `GET /spaces/{id}/reviews`
+### 8.2 `GET /spaces/{id}/reviews`
 Reviews for a space.
 
 - **Auth:** none
 - **Response `200`:** `ReviewResponse[]` + `avg_rating`. Uses `idx_reviews_space`; avg cached
   at `rating:{space_id}` (TTL 1 hour).
 
-### 6.3 `GET /users/{id}/reviews`
+### 8.3 `GET /users/{id}/reviews`
 Reviews received by a user.
 
 - **Auth:** none
@@ -486,13 +643,13 @@ Reviews received by a user.
 
 ---
 
-## 7. Analytics  (`/api/analytics`)
+## 9. Analytics  (`/api/analytics`)
 
 Router file: create `backend/routers/analytics.py`. Admin/owner-facing; guard with an
 admin/role check. Business metrics come from Postgres aggregation queries (visualized with
 Recharts on the frontend).
 
-### 7.1 `GET /analytics/bookings`
+### 9.1 `GET /analytics/bookings`
 Booking counts over time.
 
 - **Auth:** required (admin, or lister scoped to own spaces)
@@ -502,21 +659,21 @@ Booking counts over time.
 { "series": [ { "period": "2026-06-01", "count": 12 } ] }
 ```
 
-### 7.2 `GET /analytics/spaces/top`
+### 9.2 `GET /analytics/spaces/top`
 Most viewed / most booked spaces.
 
 - **Auth:** required (admin/owner)
 - **Query:** `metric` (`views`|`bookings`), `limit`.
 - **Response `200`:** ranked `[{ "space_id", "title", "value" }]`.
 
-### 7.3 `GET /analytics/users/growth`
+### 9.3 `GET /analytics/users/growth`
 Signup growth curve.
 
 - **Auth:** admin
 - **Query:** `from`, `to`, `interval`.
 - **Response `200`:** time series of new-user counts.
 
-### 7.4 `GET /analytics/occupancy`
+### 9.4 `GET /analytics/occupancy`
 Occupancy rates by city / space type.
 
 - **Auth:** admin

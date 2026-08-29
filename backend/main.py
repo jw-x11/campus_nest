@@ -9,6 +9,8 @@ from routers.auth import api_auth
 from routers.users import api_users
 from routers.spaces import api_spaces
 from routers.bookings import api_bookings
+from routers.view_history import api_view_history
+from routers.saved_space import api_saved_space
 
 
 @asynccontextmanager
@@ -35,7 +37,8 @@ app_router.include_router(api_auth, prefix="/auth", tags=["auth"])
 app_router.include_router(api_users, prefix="/users", tags=["users"])
 app_router.include_router(api_spaces, prefix="/spaces", tags=["spaces"])
 app_router.include_router(api_bookings, prefix="/bookings", tags=["bookings"])
-
+app_router.include_router(api_view_history, prefix="/history", tags=["view-history"])
+app_router.include_router(api_saved_space, prefix="/saved", tags=["saved-space"])
 
 @app.get("/api/health")
 def health():

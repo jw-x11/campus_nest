@@ -13,3 +13,4 @@ async def change_password(session: AsyncSession, user: User, new_password: str) 
     await session.commit()
     await session.refresh(user)
     return True
+

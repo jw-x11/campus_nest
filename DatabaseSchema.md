@@ -58,7 +58,7 @@ CREATE TABLE users (
 );
 ```
 
-> **Account deletion is a soft delete — never issue `DELETE FROM users`.** Two things make a hard delete unworkable. Once `bookings` and `payments` exist, their foreign keys deliberately do not cascade, so Postgres rejects the delete outright for any user with booking history. And for a user without that history the delete does succeed, but the `spaces.owner_id` cascade silently destroys their listings along with every `saved_spaces` row other users had pointing at them.
+> **Account deletion is a soft delete — never issue `DELETE FROM users`.** Two things make a hard delete unworkable. Once `bookings` and `payments` exist, their foreign keys deliberately do not cascade, so Postgres rejects the delete outright for any user with booking history. And for a user without that history the delete does succeed, but the `spaces.owner_id` cascade silently destroys their listings along with every `saved_spaces` and `view_history` row other users had pointing at them.
 >
 > "Delete my account" should instead anonymize the profile (blank `email`, `phone`, `username` and `avatar_url`) and set `is_active = false` on the user's spaces, which hides the listings while leaving bookings, payments and reviews intact and referentially valid. The `ON DELETE CASCADE` on `spaces.owner_id` stays as a safety net for genuine administrative hard deletes; it is not the normal path.
 >
@@ -89,6 +89,7 @@ Listings for storage spaces (closet, shelf, garage, basement, room) available to
 | `available_from` | date          | NO       | —                   |                                                             |
 | `available_to`   | date          | NO       | —                   |                                                             |
 | `is_active`      | boolean       | NO       | `true`              | Hide without deleting                                       |
+| `view_count`     | integer       | NO       | `0`                 | Denormalized total views; increment on each listing view  |
 | `created_at`     | timestamptz   | NO       | `now()`             |                                                             |
 | `updated_at`     | timestamptz   | NO       | `now()`             |                                                             |
 | `expired_at`     | timestamptz   | NO       |                     |                                                             |
@@ -110,6 +111,7 @@ CREATE TABLE spaces (
     available_from date          NOT NULL,
     available_to   date          NOT NULL,
     is_active      boolean       NOT NULL DEFAULT true,
+    view_count     integer       NOT NULL DEFAULT 0,
     created_at     timestamptz   NOT NULL DEFAULT now(),
     updated_at     timestamptz   NOT NULL DEFAULT now(),
     expired_at     timestamptz   NOT NULL
@@ -182,7 +184,43 @@ CREATE TABLE saved_spaces (
 CREATE INDEX idx_saved_spaces_space ON saved_spaces (space_id);
 ```
 
-> Whether the current viewer has saved a listing is computed per request with an `EXISTS` subquery; it is never stored on `spaces`. Toggling on should use `INSERT ... ON CONFLICT (user_id, space_id) DO NOTHING` so a double tap is idempotent.
+> Whether the current viewer has saved a listing is computed per request with an `EXISTS` subquery; it is never stored on `spaces`. The listing-wide total is `COUNT(*)` on `saved_spaces` for that `space_id` (uses `idx_saved_spaces_space`). Toggling on should use `INSERT ... ON CONFLICT (user_id, space_id) DO NOTHING` so a double tap is idempotent.
+>
+> **API:** [`ApiDocumentation.md` §4 Saved Spaces (`/api/saved`)](ApiDocumentation.md#4-saved-spaces--apisaved).
+
+---
+
+
+
+### `view_history`
+
+Per-user browsing history. One row per (user, space) pair; revisiting a listing refreshes `viewed_at` instead of inserting another row.
+
+
+| Column      | Type        | Nullable | Default | Notes                             |
+| ----------- | ----------- | -------- | ------- | --------------------------------- |
+| `user_id`   | uuid        | NO       | —       | FK → `users.id` (cascade delete)  |
+| `space_id`  | uuid        | NO       | —       | FK → `spaces.id` (cascade delete) |
+| `viewed_at` | timestamptz | NO       | `now()` | Last time this user viewed it     |
+
+
+**Primary key:** `(user_id, space_id)` — composite, so a space can only appear once per user's history
+
+```sql
+CREATE TABLE view_history (
+    user_id    uuid        NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+    space_id   uuid        NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    viewed_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, space_id)
+);
+
+CREATE INDEX idx_view_history_user_time ON view_history (user_id, viewed_at);
+CREATE INDEX idx_view_history_space     ON view_history (space_id);
+```
+
+> Recording a view should use `INSERT ... ON CONFLICT (user_id, space_id) DO UPDATE SET viewed_at = now()` so a re-view bumps the timestamp rather than failing or duplicating. Increment `spaces.view_count` on every view (including re-views); that counter is a total, not unique viewers, so it can exceed the number of `view_history` rows for the listing. `ON DELETE CASCADE` from `spaces` means a deleted listing disappears from history; there is no "this listing is no longer available" row left behind. Anonymous (logged-out) browsing is not stored here.
+>
+> **API:** [`ApiDocumentation.md` §5 View History (`/api/history`)](ApiDocumentation.md#5-view-history--apihistory).
 
 ---
 
@@ -379,6 +417,9 @@ CREATE INDEX idx_reviews_reviewee ON reviews (reviewee_id);
 | `idx_space_images_space`   | space_images | `space_id, sort_order`         | Fetch a listing's photos in display order     |
 | `saved_spaces_pkey`        | saved_spaces | `user_id, space_id`            | My saved list; uniqueness per user/space      |
 | `idx_saved_spaces_space`   | saved_spaces | `space_id`                     | Save counts and reverse lookups               |
+| `view_history_pkey`        | view_history | `user_id, space_id`            | Uniqueness per user/space; upsert target      |
+| `idx_view_history_user_time` | view_history | `user_id, viewed_at`         | Recently viewed list, newest first            |
+| `idx_view_history_space`   | view_history | `space_id`                     | Reverse lookups when a listing is deleted     |
 | `idx_bookings_renter`      | bookings     | `renter_id`                    | My bookings                                   |
 | `idx_bookings_space`       | bookings     | `space_id`                     | Space availability checks                     |
 | `idx_messages_convo`       | messages     | `conversation_id, created_at`  | Chat history pagination                       |
