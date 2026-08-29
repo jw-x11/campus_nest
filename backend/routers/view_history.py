@@ -32,8 +32,11 @@ async def get_history_list(db: Annotated[AsyncSession, Depends(get_db)], user: A
 
 # Record that the caller viewed this listing.
 @api_view_history.post("/{space_id}")
-async def add_history(db: Annotated[AsyncSession, Depends(get_db)], user: Annotated[User, Depends(get_current_user)], space_id: UUID):
-    pass
+async def add_history(db: Annotated[AsyncSession, Depends(get_db)], user: Annotated[User, Depends(get_current_user)], space_id):
+    result = await add_view_history(db, user.id, space_id)
+    if not result:
+        raise HTTPException(status_code=400, detail="Failed to add history")
+    return success_response(message="History added successfully", data=None)
 
 
 
@@ -41,7 +44,10 @@ async def add_history(db: Annotated[AsyncSession, Depends(get_db)], user: Annota
 # Remove one listing from the caller's history.
 @api_view_history.delete("/{space_id}")
 async def delete_history(db: Annotated[AsyncSession, Depends(get_db)], user: Annotated[User, Depends(get_current_user)], history_id: UUID):
-    pass
+    result = await delete_view_history(db, user.id, history_id)
+    if not result:
+        raise HTTPException(status_code=204, detail="History not found")
+    return success_response(message="History deleted successfully", data=None)
 
 
 
@@ -50,4 +56,7 @@ async def delete_history(db: Annotated[AsyncSession, Depends(get_db)], user: Ann
 # Clear the caller's entire history.
 @api_view_history.delete("/clear")
 async def clear_history(db: Annotated[AsyncSession, Depends(get_db)], user: Annotated[User, Depends(get_current_user)]):
-    pass
+    result = await clear_view_history(db, user.id)
+    if not result:
+        raise HTTPException(status_code=204, detail="History is empty")
+    return success_response(message="History cleared successfully", data=None)

@@ -20,6 +20,8 @@ class SpaceInfoRequest(BaseModel):
     available_to: date
 
 
+
+
 class SpaceItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
@@ -39,6 +41,20 @@ class SpaceItem(BaseModel):
 
     created_at: datetime
     updated_at: datetime
+
+
+
+class SpaceItemReduced(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
+
+    title: Annotated[str, Field(min_length=1, max_length=255)]
+    city: str
+    price: Annotated[float, Field(ge=0)] = 0.0
+    price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
+
+    view_count: int
+    updated_at: datetime
+
 
 
 class SpaceSearchQuery(BaseModel):
