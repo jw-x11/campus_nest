@@ -1,20 +1,28 @@
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
 from schemas.spaces import SpaceItemReduced
 
 
-class ViewHistoryItem(BaseModel):
+class SavedSpaceItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     space: SpaceItemReduced
-    viewed_at: datetime
+    saved_at: datetime
 
 
-class ViewHistoryListResponse(BaseModel):
+class SavedSpaceListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     total_count: int
     has_more: bool
-    history_list: list[ViewHistoryItem]
+    saved_list: list[SavedSpaceItem]
+
+
+class SavedStatusResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    space_id: UUID
+    saved: bool
