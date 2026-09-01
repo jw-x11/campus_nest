@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict, Field
 from datetime import date, datetime
-from typing import Literal, Annotated
+from typing import Annotated, Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
 
 DEFAULT_PAGE_SIZE = 25
 
@@ -23,8 +25,11 @@ class SpaceInfoRequest(BaseModel):
 
 
 class SpaceItem(BaseModel):
+    # populate_by_name: allow alias
+    # from_attributes: allow model_validate to work with ORM models
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
+    space_id: Annotated[UUID, Field(alias="id")]
     title: Annotated[str, Field(min_length=1, max_length=255)]
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
@@ -47,6 +52,7 @@ class SpaceItem(BaseModel):
 class SpaceItemReduced(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
+    space_id: Annotated[UUID, Field(alias="id")]
     title: Annotated[str, Field(min_length=1, max_length=255)]
     city: str
     price: Annotated[float, Field(ge=0)] = 0.0

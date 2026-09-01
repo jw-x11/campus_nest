@@ -6,7 +6,7 @@ from models.users import User
 from models.spaces import Space
 from models.saved_space import SavedSpace
 
-# Router: /api/saved-space
+# Router: /api/saved
 
 api_saved_space = APIRouter()
 

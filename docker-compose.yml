@@ -61,22 +61,6 @@ services:
     volumes:
       - seaweedfs_filer_data:/data
 
-  dbhub:
-    image: bytebase/dbhub:latest
-    container_name: dbhub
-    ports:
-      - "8090:8080"
-    environment:
-      - DBHUB_LOG_LEVEL=info
-    command:
-      - --transport
-      - http
-      - --port
-      - "8080"
-      - --dsn
-      - "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}"
-    depends_on:
-      - database
 
 volumes:
   postgres_data:

@@ -176,8 +176,8 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
 
 
 
-async def increase_view_count(db: AsyncSession, space_id: UUID) -> bool:
-    stm = update(Space).where(Space.id == space_id).values(view_count=Space.view_count + 1)
+async def increase_view_count(db: AsyncSession, space_id: UUID, increment: int = 1) -> bool:
+    stm = update(Space).where(Space.id == space_id).values(view_count=Space.view_count + increment)
     result = await db.execute(stm)
     await db.commit()
     return result.rowcount > 0
