@@ -5,15 +5,20 @@
 
 | Enum             | Values                                              |
 | ---------------- | --------------------------------------------------- |
-| `booking_status` | `pending`, `confirmed`, `cancelled`, `completed`    |
+| `booking_status` | `pending`, `accepted`, `confirmed`, `active`, `cancelled`, `completed`, `declined` |
 | `payment_status` | `pending`, `succeeded`, `failed`, `refunded`        |
 | `payment_type`   | `single`,`recurring_per_month`,`recurring_per_week` |
 
 
 ```sql
-CREATE TYPE booking_status AS ENUM ('pending', 'confirmed', 'cancelled', 'completed');
+CREATE TYPE booking_status AS ENUM ('pending', 'accepted', 'confirmed', 'active', 'cancelled', 'completed', 'declined');
 CREATE TYPE payment_status AS ENUM ('pending', 'succeeded', 'failed', 'refunded');
 CREATE TYPE payment_type   AS ENUM ('single', 'recurring_per_month', 'recurring_per_week');
+
+-- Existing databases (enum values cannot be removed; add only):
+-- ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'accepted' AFTER 'pending';
+-- ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'active' AFTER 'confirmed';
+-- ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'declined' AFTER 'completed';
 ```
 
 ---
@@ -231,37 +236,46 @@ CREATE INDEX idx_view_history_space     ON view_history (space_id);
 Records of a renter booking a space for a date range.
 
 
-| Column        | Type           | Nullable | Default             | Notes                    |
-| ------------- | -------------- | -------- | ------------------- | ------------------------ |
-| `id`          | uuid           | NO       | `gen_random_uuid()` | Primary key              |
-| `space_id`    | uuid           | NO       | —                   | FK → `spaces.id`         |
-| `renter_id`   | uuid           | NO       | —                   | FK → `users.id`          |
-| `start_date`  | date           | NO       | —                   |                          |
-| `end_date`    | date           | NO       | —                   |                          |
-| `status`      | booking_status | NO       | `pending`           | Lifecycle state          |
-| `total_price` | numeric(10,2)  | NO       | —                   | Computed at booking time |
-| `created_at`  | timestamptz    | NO       | `now()`             |                          |
-| `updated_at`  | timestamptz    | NO       | `now()`             |                          |
+| Column         | Type           | Nullable | Default             | Notes                                       |
+| -------------- | -------------- | -------- | ------------------- | ------------------------------------------- |
+| `id`           | uuid           | NO       | `gen_random_uuid()` | Primary key                                 |
+| `space_id`     | uuid           | NO       | —                   | FK → `spaces.id`                            |
+| `renter_id`    | uuid           | NO       | —                   | FK → `users.id`                             |
+| `owner_id`     | uuid           | NO       | —                   | FK → `users.id`; listing owner copied at request time |
+| `start_date`   | date           | NO       | —                   |                                             |
+| `end_date`     | date           | NO       | —                   |                                             |
+| `status`       | booking_status | NO       | `pending`           | Lifecycle: pending → accepted → confirmed → active → completed; terminals cancelled, declined |
+| `price`        | numeric(10,2)  | NO       | —                   | Listing price copied at request time        |
+| `price_type`   | payment_type   | NO       | —                   | Listing `price_type` copied at request time |
+| `total_price`  | numeric(10,2)  | NO       | —                   | Computed at booking time                    |
+| `special_deal` | numeric(10,2)  | NO       | `0`                 | Owner flat override; `0` means none         |
+| `created_at`   | timestamptz    | NO       | `now()`             |                                             |
+| `updated_at`   | timestamptz    | NO       | `now()`             |                                             |
 
 
 ```sql
 CREATE TABLE bookings (
-    id          uuid           PRIMARY KEY DEFAULT gen_random_uuid(),
-    space_id    uuid           NOT NULL REFERENCES spaces(id),
-    renter_id   uuid           NOT NULL REFERENCES users(id),
-    start_date  date           NOT NULL,
-    end_date    date           NOT NULL,
-    status      booking_status NOT NULL DEFAULT 'pending',
-    total_price numeric(10,2)  NOT NULL,
-    created_at  timestamptz    NOT NULL DEFAULT now(),
-    updated_at  timestamptz    NOT NULL DEFAULT now()
+    id           uuid           PRIMARY KEY DEFAULT gen_random_uuid(),
+    space_id     uuid           NOT NULL REFERENCES spaces(id),
+    renter_id    uuid           NOT NULL REFERENCES users(id),
+    owner_id     uuid           NOT NULL REFERENCES users(id),
+    start_date   date           NOT NULL,
+    end_date     date           NOT NULL,
+    status       booking_status NOT NULL DEFAULT 'pending',
+    price        numeric(10,2)  NOT NULL,
+    price_type   payment_type   NOT NULL,
+    total_price  numeric(10,2)  NOT NULL,
+    special_deal numeric(10,2)  NOT NULL DEFAULT 0,
+    created_at   timestamptz    NOT NULL DEFAULT now(),
+    updated_at   timestamptz    NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_bookings_renter ON bookings (renter_id);
+CREATE INDEX idx_bookings_owner  ON bookings (owner_id);
 CREATE INDEX idx_bookings_space  ON bookings (space_id);
 ```
 
-> Both foreign keys deliberately omit `ON DELETE CASCADE`: a booking is a financial record, so deleting a user or space it references should be blocked rather than silently erasing history. Note this conflicts with `spaces.owner_id` cascading from `users` — once this table exists, deleting a user who owns a booked space will fail on the booking constraint.
+> Foreign keys deliberately omit `ON DELETE CASCADE`: a booking is a financial record, so deleting a user or space it references should be blocked rather than silently erasing history. `owner_id` is copied from `spaces.owner_id` at request time so lister queries (`view=owner`) do not join `spaces`. It does not update if the listing later changes hands. Note this conflicts with `spaces.owner_id` cascading from `users` — once this table exists, deleting a user who owns a booked space will fail on the booking constraint.
 
 ---
 
@@ -420,10 +434,10 @@ CREATE INDEX idx_reviews_reviewee ON reviews (reviewee_id);
 | `view_history_pkey`        | view_history | `user_id, space_id`            | Uniqueness per user/space; upsert target      |
 | `idx_view_history_user_time` | view_history | `user_id, viewed_at`         | Recently viewed list, newest first            |
 | `idx_view_history_space`   | view_history | `space_id`                     | Reverse lookups when a listing is deleted     |
-| `idx_bookings_renter`      | bookings     | `renter_id`                    | My bookings                                   |
+| `idx_bookings_renter`      | bookings     | `renter_id`                    | My bookings (renter view)                     |
+| `idx_bookings_owner`       | bookings     | `owner_id`                     | My bookings (owner view)                      |
 | `idx_bookings_space`       | bookings     | `space_id`                     | Space availability checks                     |
 | `idx_messages_convo`       | messages     | `conversation_id, created_at`  | Chat history pagination                       |
 | `idx_reviews_space`        | reviews      | `space_id`                     | Space review listing                          |
 | `idx_reviews_reviewee`     | reviews      | `reviewee_id`                  | User review listing                           |
-
 

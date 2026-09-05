@@ -18,6 +18,8 @@ from utils.response import success_response
 
 # Router: /api/history
 
+# TODO: Check if space exists and active
+
 api_view_history = APIRouter()
 
 

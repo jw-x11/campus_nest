@@ -20,7 +20,7 @@ in `main.py`):
 ```json
 {
   "detail": "Human-readable message",
-  "code": "MACHINE_READABLE_CODE"
+  "code": "Error Code"
 }
 ```
 
@@ -482,9 +482,9 @@ Clear the caller's entire history.
 ## 6. Bookings  (`/api/bookings`)
 
 Router file: `backend/routers/bookings.py`.
-**States:** `pending` → `confirmed` → `active` → `completed` | `cancelled` | `declined`.
-(The DB enum currently has `pending | confirmed | cancelled | completed`; add `active` /
-`declined` if you want the full lifecycle from the PRD.)
+**States:** `pending` → `accepted` → `confirmed` → `active` → `completed`, plus terminals `cancelled` | `declined`.
+DB enum: `pending | accepted | confirmed | active | cancelled | completed | declined`.
+A nightly job writes `confirmed → active` when `start_date` begins and `active → completed` when `end_date` has passed. Unpaid `accepted` cancels instead of becoming `active`.
 
 ### Shared schema — `BookingResponse`
 ```json
@@ -492,18 +492,22 @@ Router file: `backend/routers/bookings.py`.
   "id": "uuid",
   "space_id": "uuid",
   "renter_id": "uuid",
+  "owner_id": "uuid",
   "start_date": "2026-06-05",
-  "end_date": "2026-07-05",
+  "end_date": "2026-08-05",
   "status": "pending",
-  "total_price": 60.00
+  "price": 15.0,
+  "price_type": "recurring_per_month",
+  "total_price": 60.00,
+  "special_deal": 0.00
 }
 ```
 
 ### 6.1 `POST /bookings`
-Request a booking (with Redis availability lock to prevent double-booking).
+Request for a booking (with Redis availability lock to prevent double-booking).
 
 - **Auth:** required
-- **Request**
+- **Request Body**
 ```json
 { "space_id": "uuid", "start_date": "2026-06-05", "end_date": "2026-07-05" }
 ```
@@ -512,29 +516,99 @@ Request a booking (with Redis availability lock to prevent double-booking).
   1. Validate dates within the space's `available_from`/`available_to` and `end > start`.
   2. Acquire Redis lock `lock:booking:{space_id}:{date}` (TTL 10 min) for the range — use
      `SET NX`. If any date is locked or already booked → `409 SPACE_UNAVAILABLE`.
-  3. Insert booking (`pending`); compute `total_price` from `price`/`price_type` × duration.
+  3. Insert booking (`pending`); snapshot `owner_id` from the listing; compute `total_price` from `price`/`price_type` × duration.
   4. Release/rely on lock TTL once persisted.
+  5. Renter request booking: `pending`
+  6. Owner accept / decline: `accepted` / `declined`
+  7. Payment succeeded (Stripe or owner in-person receipt): `confirmed`
+  8. First day of the stay: `active` (nightly job, or same write as payment if `start_date` is already today)
+  9. After rent ended: `completed`
 - **Errors:** `400` bad dates, `404` space, `409` unavailable/double-book.
 
 ### 6.2 `GET /bookings/me`
 List the caller's bookings.
 
 - **Auth:** required
-- **Query (optional):** `status`, `role` (`renter` | `lister`), pagination.
-- **Response `200`:** `BookingResponse[]` (by default where `renter_id == caller`; add lister
-  view for bookings on the caller's spaces).
+- **Query (optional):** `status`, `view` (`renter` | `owner`, default `renter`), pagination.
+- **Response `200`:** `BookingResponse[]`. `view=renter` filters `renter_id == caller`; `view=owner` filters `owner_id == caller`.
 
-### 6.3 `PATCH /bookings/{id}/cancel`
+### 6.3 `PATCH /bookings/cancel`
 Cancel a booking.
 
 - **Auth:** owner (renter who made it, or lister of the space)
+
+- **Request Body**
+
+  * ```json
+    {"space_id": "uuid"}
+    ```
+
 - **Response `200`:** `BookingResponse` (status `cancelled`).
+
 - **Logic:** verify caller is the renter or space owner; enforce per-listing cancel policy
   (`flexible` 48h / `moderate` 5d / `strict`) against `start_date`. Release any lock.
+  
 - **Errors:** `403`, `404`, `400 CANCEL_WINDOW_PASSED`.
 
-> **Recommended additions:** `PATCH /bookings/{id}/accept` and `/decline` for the lister to act
-> within 24h (PRD user story). Not in the current scaffold but needed for the full flow.
+### 6.4 `PATCH /bookings/accept`
+
+* **Auth**: owner
+
+* **Request Body**
+
+  * ```json
+    {"space_id": "uuid"}
+    ```
+
+* **Logic**: owner accept the booking request: mark booking as `accepted`. Dates are held; other users cannot book the same range. Payment has not happened yet.
+
+### 6.5 `PATCH /bookings/decline`
+
+* **Auth**: owner
+
+* **Request Body**
+
+  * ```json
+    {"space_id": "uuid"}
+    ```
+
+* **Logic**: owner declines the booking request: mark booking as `declined`. 
+
+### 6.6 `PATCH /booking/special`
+
+* **Auth**: Owner
+
+* **Request Body**
+
+  * ```json
+    {"space_id": "uuid", "price":"int"}
+    ```
+
+* **Logic**: Owner offer a special deal (flat price) for user after negotiating. Over write the original price. Minimum 0.01
+
+### 6.7 `GET /booking/details/{booking_id}`
+
+* **Auth:** Owner or renter
+* **Path param**: `booking_id`
+* **Reponse**: booking details
+
+### 6.8 `PUT /booking/details/{booking_id} `
+
+* **Auth:** renter
+
+* **Body:** BookingUpdateRequest
+
+  * ```python
+    {
+        "booking_id": UUID,
+        "start_date": date,
+        "end_date": date
+    }
+    ```
+
+* Logic: Update booking dates for renter
+
+* **Response**: Booking details
 
 ---
 
@@ -700,8 +774,9 @@ Stripe async callback.
 
 - **Auth:** Stripe signature verification (not a user token).
 - **Handles:** `payment_intent.succeeded`, `payment_intent.payment_failed`, `payout.paid`.
-- **Logic:** verify signature, sync `payments.status`, and on success advance the booking to
-  `confirmed`/`active`. Must be idempotent (Stripe retries).
+- **Logic:** verify signature, sync `payments.status`, and on success advance the booking from
+  `accepted` to `confirmed` (or `active` in the same write if `start_date` is already today).
+  Must be idempotent (Stripe retries).
 - **Response `200`** quickly to acknowledge.
 
 ---
