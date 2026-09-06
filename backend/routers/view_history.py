@@ -2,6 +2,7 @@ from typing import Annotated
 from uuid import UUID
 
 from config.db_config import get_db
+from crud.spaces import get_space_by_id
 from crud.view_history import (
     add_or_update_view_history,
     clear_view_history,
@@ -18,7 +19,6 @@ from utils.response import success_response
 
 # Router: /api/history
 
-# TODO: Check if space exists and active
 
 api_view_history = APIRouter()
 
@@ -70,6 +70,13 @@ async def add_history(
     user: Annotated[User, Depends(get_current_user)],
     space_id: UUID,
 ):
+
+    space = await get_space_by_id(db, space_id)
+    if space is None:
+        raise HTTPException(status_code=404, detail="Space not found")
+    if space.is_active is False:
+        raise HTTPException(status_code=400, detail="Space is not active")
+
     result = await add_or_update_view_history(db, user.id, space_id)
     if not result:
         raise HTTPException(status_code=400, detail="Failed to add history")
@@ -84,6 +91,10 @@ async def delete_history(
     user: Annotated[User, Depends(get_current_user)],
     space_id: UUID,
 ):
+
+    space = await get_space_by_id(db, space_id)
+    if space is None:
+        raise HTTPException(status_code=404, detail="Space not found")
 
     result = await delete_view_history(db, user.id, space_id)
     if not result:

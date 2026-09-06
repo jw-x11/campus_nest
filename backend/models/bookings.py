@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Index, Numeric, ForeignKey, text
-from sqlalchemy.dialects.postgresql import UUID, ENUM
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, Text, text
+from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -70,6 +70,9 @@ class Booking(Base):
     special_deal: Mapped[float] = mapped_column(
         Numeric(10, 2), nullable=False, server_default=text("0")
     )
+
+    # Set when one party requests cancel after confirmed/active; NULL means no pending cancel.
+    cancel_requested_by: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -4,13 +4,22 @@ from uuid import UUID
 from config.db_config import get_db
 from crud.saved_space import (
     add_saved_space,
-    delete_saved_space as remove_saved_space,
-    get_saved_list as fetch_saved_list,
     is_space_saved,
 )
+from crud.saved_space import (
+    delete_saved_space as remove_saved_space,
+)
+from crud.saved_space import (
+    get_saved_list as fetch_saved_list,
+)
+from crud.spaces import get_space_by_id
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.users import User
-from schemas.saved_space import SavedSpaceItem, SavedSpaceListResponse, SavedStatusResponse
+from schemas.saved_space import (
+    SavedSpaceItem,
+    SavedSpaceListResponse,
+    SavedStatusResponse,
+)
 from schemas.spaces import SpaceItemReduced
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.deps import get_current_user
@@ -69,7 +78,12 @@ async def save_space(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
     space_id: UUID,
-):
+):  
+
+    space = await get_space_by_id(db, space_id)
+    if space is None:
+        raise HTTPException(status_code=404, detail="Space not found")
+
     result = await add_saved_space(db, user.id, space_id)
     if not result:
         raise HTTPException(status_code=400, detail="Failed to save space")
@@ -84,6 +98,10 @@ async def delete_saved_space(
     user: Annotated[User, Depends(get_current_user)],
     space_id: UUID,
 ):
+    space = await get_space_by_id(db, space_id)
+    if space is None:
+        raise HTTPException(status_code=404, detail="Space not found")
+
     result = await remove_saved_space(db, user.id, space_id)
     if not result:
         raise HTTPException(status_code=404, detail="Saved space not found")
@@ -97,6 +115,11 @@ async def get_saved_status(
     user: Annotated[User, Depends(get_current_user)],
     space_id: UUID,
 ):
+
+    space = await get_space_by_id(db, space_id)
+    if space is None:
+        raise HTTPException(status_code=404, detail="Space not found")
+
     saved = await is_space_saved(db, user.id, space_id)
     response = SavedStatusResponse(space_id=space_id, saved=saved)
     return success_response(message="Saved status retrieved", data=response)

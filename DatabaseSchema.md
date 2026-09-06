@@ -249,6 +249,7 @@ Records of a renter booking a space for a date range.
 | `price_type`   | payment_type   | NO       | —                   | Listing `price_type` copied at request time |
 | `total_price`  | numeric(10,2)  | NO       | —                   | Computed at booking time                    |
 | `special_deal` | numeric(10,2)  | NO       | `0`                 | Owner flat override; `0` means none         |
+| `cancel_requested_by` | text    | YES      | `NULL`              | `'renter'` or `'owner'` when one party has requested cancel after confirmed/active; `NULL` if none |
 | `created_at`   | timestamptz    | NO       | `now()`             |                                             |
 | `updated_at`   | timestamptz    | NO       | `now()`             |                                             |
 
@@ -266,6 +267,7 @@ CREATE TABLE bookings (
     price_type   payment_type   NOT NULL,
     total_price  numeric(10,2)  NOT NULL,
     special_deal numeric(10,2)  NOT NULL DEFAULT 0,
+    cancel_requested_by text    CHECK (cancel_requested_by IN ('renter', 'owner')),
     created_at   timestamptz    NOT NULL DEFAULT now(),
     updated_at   timestamptz    NOT NULL DEFAULT now()
 );

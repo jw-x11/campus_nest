@@ -1,15 +1,14 @@
-from decimal import Decimal
 import math
+from datetime import date
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy.sql import func, or_, select, update
-
-from schemas.bookings import BookingRequest, BookingUpdateRequest
-from models.users import User
 from models.bookings import Booking
 from models.spaces import Space
+from schemas.bookings import BookingRequest, BookingUpdateRequest
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import func, or_, select, update
 
 
 async def create_pending_booking(
@@ -125,6 +124,30 @@ async def booking_exists(db: AsyncSession, booking_id: UUID) -> bool:
 
 
 
+async def check_overlapping_booking(
+    db: AsyncSession,
+    user_id: UUID,
+    space_id: UUID,
+    start_date: date,
+    end_date: date,
+) -> bool:
+    # Two ranges overlap iff each starts before the other ends:
+    #   existing.start < new.end  AND  existing.end > new.start
+    # Existing Jun 1–Jun 30, new Jun 15–Jul 10 → overlap (shared Jun 15–30)
+    # Existing Jun 1–Jun 30, new Jul 1–Jul 15  → no overlap (back-to-back)
+    stm = (
+        select(func.count()).select_from(Booking)
+        .where(
+            Booking.renter_id == user_id,
+            Booking.space_id == space_id,
+            Booking.status.notin_(["cancelled", "declined", "completed"]),
+            Booking.start_date < end_date,
+            Booking.end_date > start_date,
+        )
+    )
+    result = await db.execute(stm)
+    return result.scalar_one() > 0
+
 
 async def verify_booking_owner_or_renter(
     db: AsyncSession, user_id: UUID, booking_id: UUID
@@ -171,10 +194,18 @@ async def set_booking_status(
     db: AsyncSession,
     booking_id: UUID,
     status: Literal[
-        "pending", "confirmed", "active", "cancelled", "completed", "declined"
+        "pending", "accepted", "confirmed", "active", "cancelled", "completed", "declined"
     ],
 ) -> bool:
     stm = update(Booking).where(Booking.id == booking_id).values(status=status)
     result = await db.execute(stm)
     await db.commit()
     return result.rowcount != 0
+
+
+async def request_cancellation(db: AsyncSession, booking_id: UUID, requested_by: Literal["renter", "owner"]) -> bool:
+    stm = update(Booking).where(Booking.id == booking_id).values(cancel_requested_by=requested_by)
+    result = await db.execute(stm)
+    await db.commit()
+    return result.rowcount != 0
+

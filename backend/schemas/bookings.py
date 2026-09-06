@@ -24,7 +24,7 @@ class BookingUpdateRequest(BaseModel):
 class BookingSpaceActionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    space_id: UUID
+    booking_id: UUID
 
 
 class BookingSpecialDealRequest(BaseModel):
@@ -48,6 +48,7 @@ class BookingResponse(BaseModel):
     price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
     total_price: Annotated[Decimal, Field(decimal_places=2)]
     special_deal: Annotated[Decimal, Field(decimal_places=2)]
+    cancel_requested_by: Literal["renter", "owner"] | None
     created_at: datetime
     updated_at: datetime
 

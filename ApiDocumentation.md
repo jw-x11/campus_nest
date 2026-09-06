@@ -499,9 +499,11 @@ A nightly job writes `confirmed → active` when `start_date` begins and `active
   "price": 15.0,
   "price_type": "recurring_per_month",
   "total_price": 60.00,
-  "special_deal": 0.00
+  "special_deal": 0.00,
+  "cancel_requested_by": null
 }
 ```
+`cancel_requested_by` is `null`, `"renter"`, or `"owner"`. `null` means no pending cancel; a role means that party has requested cancel and is waiting on the other.
 
 ### 6.1 `POST /bookings`
 Request for a booking (with Redis availability lock to prevent double-booking).
@@ -543,12 +545,15 @@ Cancel a booking.
     {"space_id": "uuid"}
     ```
 
-- **Response `200`:** `BookingResponse` (status `cancelled`).
-
-- **Logic:** verify caller is the renter or space owner; enforce per-listing cancel policy
-  (`flexible` 48h / `moderate` 5d / `strict`) against `start_date`. Release any lock.
-  
-- **Errors:** `403`, `404`, `400 CANCEL_WINDOW_PASSED`.
+- **Response `200`:** `BookingResponse`. Status is `cancelled` when cancel takes effect; otherwise status is unchanged and `cancel_requested_by` is the caller's role.
+- **Logic**
+  1. Caller must be the renter or the listing owner.
+  2. `pending` or `accepted`: set `status = cancelled` immediately (one party is enough; payment has not happened).
+  3. `confirmed` or `active`: both parties must agree.
+     - If `cancel_requested_by` is `null`, set it to the caller's role (`renter` or `owner`) and leave status unchanged.
+     - If it is already the other party, set `status = cancelled`.
+     - If it is already this party, no-op (still waiting).
+  4. `cancelled`, `declined`, or `completed`: `400`.
 
 ### 6.4 `PATCH /bookings/accept`
 
