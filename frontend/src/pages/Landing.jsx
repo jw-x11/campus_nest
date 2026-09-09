@@ -1,11 +1,12 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { SearchIcon } from '../components/icons.jsx';
-import { BodyLines, Annotation } from '../components/ui.jsx';
+import { BodyLines, Annotation, PageStatus } from '../components/ui.jsx';
 import { SpaceCard } from '../components/cards.jsx';
 import Footer from '../components/Footer.jsx';
+import { searchSpaces, formatPrice } from '../api.js';
 import {
-  listings,
   valueProps,
   stepsRenter,
   stepsLister,
@@ -47,7 +48,7 @@ function PersonaToggle() {
   );
 }
 
-function RenterHero() {
+function RenterHero({ total, minPrice }) {
   const navigate = useNavigate();
   return (
     <div style={{ padding: '40px 56px 36px' }}>
@@ -79,13 +80,13 @@ function RenterHero() {
           <div className="mono" style={{ fontSize: 11, color: 'var(--label)', letterSpacing: '.03em' }}>
             WHERE · WHEN · SIZE
           </div>
-          <div style={{ fontSize: 15 }}>Berkeley · Jun 1 – Aug 20 · any size</div>
+          <div style={{ fontSize: 15 }}>Search by city, dates, or price</div>
         </div>
         <span className="btn btn-primary">Search →</span>
       </div>
       <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginTop: 22, fontSize: 14, color: 'var(--muted-2)' }}>
-        <span>★ 128 spaces in Berkeley</span>
-        <span>◷ from $18/mo · no minimum</span>
+        <span>★ {total == null ? '…' : total} {total === 1 ? 'space' : 'spaces'} listed</span>
+        {minPrice != null && <span>◷ from ${formatPrice(minPrice)}</span>}
       </div>
     </div>
   );
@@ -150,11 +151,37 @@ export default function Landing() {
   const navigate = useNavigate();
   const steps = isRenter ? stepsRenter : stepsLister;
   const stepsTitle = isRenter ? 'Find space in three steps' : 'Start earning in three steps';
+  const [featured, setFeatured] = useState([]);
+  const [total, setTotal] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    searchSpaces({ page: 1, pageSize: 4, sortBy: 'post_date', sortOrder: 'desc' })
+      .then((data) => {
+        if (cancelled) return;
+        setFeatured(data.spaces);
+        setTotal(data.total);
+        setError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err.message || 'Could not load spaces');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const minPrice = featured.length ? Math.min(...featured.map((item) => item.price)) : null;
 
   return (
     <div className="page">
       <div className="wire-card" style={{ borderRadius: 5 }}>
-        {/* persona switch */}
         <div
           style={{
             display: 'flex',
@@ -165,17 +192,16 @@ export default function Landing() {
           <PersonaToggle />
         </div>
 
-        {isRenter ? <RenterHero /> : <ListerHero />}
+        {isRenter ? <RenterHero total={total} minPrice={minPrice} /> : <ListerHero />}
 
         {showNotes && (
           <div style={{ padding: '0 56px 14px' }}>
             <Annotation>
-              Persona toggle swaps the whole hero (renter search bar ⇄ lister earnings estimator).
+              Persona toggle swaps the whole hero (renter search bar ⇄ lister earnings estimator). Featured cards come from GET /spaces/all.
             </Annotation>
           </div>
         )}
 
-        {/* value strip */}
         <div
           style={{
             borderTop: '2px solid var(--ink)',
@@ -215,7 +241,6 @@ export default function Landing() {
           ))}
         </div>
 
-        {/* how it works */}
         <div style={{ padding: '42px 56px 10px' }}>
           <div className="label" style={{ letterSpacing: '.06em' }}>HOW IT WORKS</div>
           <div className="display" style={{ fontSize: 32, marginTop: 4 }}>{stepsTitle}</div>
@@ -246,7 +271,6 @@ export default function Landing() {
           </div>
         </div>
 
-        {/* featured */}
         <div style={{ padding: '38px 56px 48px' }}>
           <div className="section-head" style={{ marginBottom: 20 }}>
             <div>
@@ -254,16 +278,23 @@ export default function Landing() {
               <div className="display" style={{ fontSize: 32, marginTop: 4 }}>Spaces near campus</div>
             </div>
             <button className="chip" onClick={() => navigate('/search')}>
-              See all 128 →
+              See all {total == null ? '' : total} →
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-            {listings.slice(0, 4).map((item) => (
-              <div key={item.id} style={{ flex: '1 1 220px' }}>
-                <SpaceCard item={item} />
-              </div>
-            ))}
-          </div>
+          {loading && <PageStatus>Loading spaces…</PageStatus>}
+          {error && <PageStatus style={{ color: 'var(--rust)' }}>{error}</PageStatus>}
+          {!loading && !error && featured.length === 0 && (
+            <PageStatus>No listings yet — be the first to publish one.</PageStatus>
+          )}
+          {!loading && featured.length > 0 && (
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              {featured.map((item) => (
+                <div key={item.id} style={{ flex: '1 1 220px' }}>
+                  <SpaceCard item={item} />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <Footer />

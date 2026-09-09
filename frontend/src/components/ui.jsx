@@ -70,3 +70,11 @@ export function Annotation({ children, style }) {
     </div>
   );
 }
+
+export function PageStatus({ children, style }) {
+  return (
+    <div style={{ padding: '48px 22px', color: 'var(--muted)', textAlign: 'center', ...style }}>
+      {children}
+    </div>
+  );
+}

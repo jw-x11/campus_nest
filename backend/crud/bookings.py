@@ -10,6 +10,7 @@ from schemas.bookings import BookingRequest, BookingUpdateRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func, or_, select, update
 
+# TODO: Check Dates must fall inside the listing window
 
 async def create_pending_booking(
     db: AsyncSession, request: BookingRequest, user_id: UUID, space: Space

@@ -11,6 +11,7 @@ from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceListResponse, Space
 from utils.response import success_response
 from crud.spaces import (
     create_space,
+    get_all_spaces_by_owner,
     get_space_by_id,
     get_space_list,
     set_space_inactive,
@@ -55,6 +56,32 @@ async def get_all_spaces(
     space_list_response = SpaceListResponse(total_count=space_count, spaces=space_list, has_more=has_more, total_pages=total_pages)
     return success_response(message="Spaces found", data=space_list_response)
 
+
+@api_spaces.get("/mine")
+async def get_my_spaces(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+):
+    space_list, space_count = await get_all_spaces_by_owner(db, user.id, page, page_size)
+    has_more = space_count > page * page_size
+    total_pages = math.ceil(space_count / page_size) if page_size else 0
+
+    if not space_list:
+        return success_response(
+            message="No spaces found",
+            data=SpaceListResponse(total_count=0, spaces=[], has_more=False, total_pages=0),
+        )
+
+    space_list = [SpaceItem.model_validate(space) for space in space_list]
+    space_list_response = SpaceListResponse(
+        total_count=space_count,
+        spaces=space_list,
+        has_more=has_more,
+        total_pages=total_pages,
+    )
+    return success_response(message="Spaces found", data=space_list_response)
 
 
 

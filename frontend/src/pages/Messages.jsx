@@ -141,7 +141,7 @@ export default function Messages() {
                 <div style={{ fontSize: 15.5, fontWeight: 600 }}>{active.name}</div>
                 <div className="mono" style={{ fontSize: 11, color: 'var(--label)' }}>★ {active.rating}</div>
               </div>
-              <Link to="/profile/aisha-l" className="chip btn-sm">View profile</Link>
+              <Link to="/profile/me" className="chip btn-sm">View profile</Link>
             </div>
 
             {/* booking context */}

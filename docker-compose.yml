@@ -26,40 +26,41 @@ services:
     ports:
       - "9333:9333"
       - "19333:19333"
-    command: master -ip=seaweedfs-master
+    command: master -ip=seaweedfs-master -ip.bind=0.0.0.0
 
   seaweedfs-volume:
     image: chrislusf/seaweedfs
     container_name: seaweedfs-volume
     ports:
-      - "8888:8888"
-      - "18888:18888"
-    command: volume -mserver=seaweedfs-master:9333 -port=8888 -ip=seaweedfs-volume
+      - "8080:8080"
+      - "18080:18080"
+    command: volume -ip=seaweedfs-volume -ip.bind=0.0.0.0 -mserver=seaweedfs-master:9333 -port=8080
     depends_on:
       - seaweedfs-master
     volumes:
       - seaweedfs_data:/data
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs
+    container_name: seaweedfs-filer
+    ports:
+      - "8888:8888"
+      - "18888:18888"
+    command: filer -ip=seaweedfs-filer -ip.bind=0.0.0.0 -master=seaweedfs-master:9333
+    depends_on:
+      - seaweedfs-master
+      - seaweedfs-volume
+    volumes:
+      - seaweedfs_filer_data:/data
 
   seaweedfs-s3:
     image: chrislusf/seaweedfs
     container_name: seaweedfs-s3
     ports:
       - "8333:8333"
-    command: s3 -filer=seaweedfs-filer:8888
+    command: s3 -filer=seaweedfs-filer:8888 -ip.bind=0.0.0.0
     depends_on:
       - seaweedfs-filer
-
-  seaweedfs-filer:
-    image: chrislusf/seaweedfs
-    container_name: seaweedfs-filer
-    ports:
-      - "8880:8880"
-      - "18880:18880"
-    command: filer -master=seaweedfs-master:9333
-    depends_on:
-      - seaweedfs-master
-    volumes:
-      - seaweedfs_filer_data:/data
 
 
 volumes:

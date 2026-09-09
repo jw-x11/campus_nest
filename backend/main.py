@@ -3,7 +3,7 @@ from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from config import db_config
+from config import db_config, s3db_config
 from config.exception_handlers import register_exception_handlers
 from routers.auth import api_auth
 from routers.users import api_users
@@ -16,8 +16,10 @@ from routers.saved_space import api_saved_space
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db_config.connect()
+    await s3db_config.connect()
     yield
     await db_config.disconnect()
+    await s3db_config.disconnect()
 
 
 app = FastAPI(lifespan=lifespan)

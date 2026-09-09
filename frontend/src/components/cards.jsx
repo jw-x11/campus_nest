@@ -2,9 +2,11 @@ import { useNavigate } from 'react-router-dom';
 import { Hatch } from './ui.jsx';
 import { HeartIcon } from './icons.jsx';
 import { useApp } from '../context/AppContext.jsx';
+import { formatPrice } from '../api.js';
 
 function SaveHeart({ id, round = true }) {
-  const { isSaved, toggleSaved } = useApp();
+  const { user, isSaved, toggleSaved } = useApp();
+  const navigate = useNavigate();
   const saved = isSaved(id);
   return (
     <button
@@ -12,6 +14,10 @@ function SaveHeart({ id, round = true }) {
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (!user) {
+          navigate(`/login?next=${encodeURIComponent(`/space/${id}`)}`);
+          return;
+        }
         toggleSaved(id);
       }}
       style={{
@@ -59,7 +65,7 @@ export function SpaceCard({ item, showHeart = true }) {
       <div style={{ padding: '13px 15px 16px' }}>
         <div style={{ fontSize: 15 }}>{item.title}</div>
         <div className="mono" style={{ fontSize: 11.5, color: 'var(--label)', marginTop: 5 }}>
-          {item.size} · {item.dist} from campus
+          {item.subtitle || item.city}
         </div>
         <div
           style={{
@@ -70,10 +76,10 @@ export function SpaceCard({ item, showHeart = true }) {
           }}
         >
           <span className="display" style={{ fontSize: 22 }}>
-            ${item.price}
+            ${formatPrice(item.price)}
             <span style={{ fontSize: 12, color: 'var(--label)' }}>{item.priceUnit}</span>
           </span>
-          <span style={{ fontSize: 13, color: 'var(--muted-2)' }}>★ {item.rating}</span>
+          <span style={{ fontSize: 13, color: 'var(--muted-2)' }}>{item.viewCount} views</span>
         </div>
       </div>
     </div>
@@ -107,14 +113,9 @@ export function ResultRow({ item }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 15.5, display: 'flex', alignItems: 'center', gap: 8 }}>
           {item.title}
-          {item.verified && (
-            <span className="tag" style={{ borderColor: 'var(--rust)', color: 'var(--rust)' }}>
-              ✓ verified
-            </span>
-          )}
         </div>
         <div className="mono" style={{ fontSize: 11.5, color: 'var(--label)', marginTop: 5 }}>
-          {item.typeLabel} · {item.size} · {item.dist} · {item.accessLabel}
+          {item.subtitle || item.city}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 9, flexWrap: 'wrap' }}>
           <span
@@ -128,20 +129,6 @@ export function ResultRow({ item }) {
           >
             {item.priceTypeLabel}
           </span>
-          {item.amenities.map((am) => (
-            <span
-              key={am}
-              style={{
-                fontSize: 11.5,
-                color: 'var(--muted-2)',
-                border: '1.5px solid #d6d6cf',
-                borderRadius: 6,
-                padding: '2px 9px',
-              }}
-            >
-              {am}
-            </span>
-          ))}
         </div>
       </div>
       <div
@@ -155,11 +142,11 @@ export function ResultRow({ item }) {
       >
         <div style={{ textAlign: 'right' }}>
           <div className="display" style={{ fontSize: 22, lineHeight: 1 }}>
-            ${item.price}
+            ${formatPrice(item.price)}
             <span style={{ fontSize: 14, color: 'var(--label)' }}>{item.priceUnit}</span>
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--muted-2)', marginTop: 4 }}>
-            ★ {item.rating} ({item.reviews})
+            {item.viewCount} views
           </div>
         </div>
         <div

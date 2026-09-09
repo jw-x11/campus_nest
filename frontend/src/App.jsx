@@ -11,6 +11,9 @@ import Booking from './pages/Booking.jsx';
 import MapView from './pages/MapView.jsx';
 import Profile from './pages/Profile.jsx';
 import Saved from './pages/Saved.jsx';
+import Login from './pages/Login.jsx';
+import { useApp } from './context/AppContext.jsx';
+import { PageStatus } from './components/ui.jsx';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -18,6 +21,25 @@ function ScrollToTop() {
     window.scrollTo(0, 0);
   }, [pathname]);
   return null;
+}
+
+function RequireAuth({ children }) {
+  const { user, authReady } = useApp();
+  const location = useLocation();
+  if (!authReady) {
+    return (
+      <div className="page">
+        <div className="wire-card" style={{ borderRadius: 5 }}>
+          <PageStatus>Loading…</PageStatus>
+        </div>
+      </div>
+    );
+  }
+  if (!user) {
+    const next = `${location.pathname}${location.search}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
+  return children;
 }
 
 export default function App() {
@@ -28,14 +50,43 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/login" element={<Login />} />
           <Route path="/search" element={<Search />} />
           <Route path="/map" element={<MapView />} />
-          <Route path="/list" element={<ListSpace />} />
+          <Route
+            path="/list"
+            element={
+              <RequireAuth>
+                <ListSpace />
+              </RequireAuth>
+            }
+          />
           <Route path="/space/:id" element={<SpaceDetail />} />
-          <Route path="/book/:id" element={<Booking />} />
+          <Route
+            path="/book/:id"
+            element={
+              <RequireAuth>
+                <Booking />
+              </RequireAuth>
+            }
+          />
           <Route path="/messages" element={<Messages />} />
-          <Route path="/profile/:id" element={<Profile />} />
-          <Route path="/saved" element={<Saved />} />
+          <Route
+            path="/profile/:id"
+            element={
+              <RequireAuth>
+                <Profile />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/saved"
+            element={
+              <RequireAuth>
+                <Saved />
+              </RequireAuth>
+            }
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
