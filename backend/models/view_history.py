@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Index, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -23,8 +23,8 @@ class ViewHistory(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    space_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    space_id: Mapped[int] = mapped_column(
+        Integer,
         ForeignKey("spaces.id", ondelete="CASCADE"),
         primary_key=True,
     )

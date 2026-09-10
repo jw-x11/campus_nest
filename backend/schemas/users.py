@@ -1,5 +1,8 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from typing import Annotated
+from pydantic import BaseModel, ConfigDict, field_validator, StringConstraints
 from datetime import datetime
+
+MAX_DESCRIPTION_WORDS = 200
 
 class UserInfoResponse(BaseModel):
     id: str
@@ -7,6 +10,7 @@ class UserInfoResponse(BaseModel):
     username: str
     phone: str | None = None
     university: str | None = None
+    description: Annotated[str | None, StringConstraints(max_length=MAX_DESCRIPTION_WORDS)] = None
     avatar_url: str | None = None
     is_verified: bool = False
     created_at: datetime
@@ -28,6 +32,7 @@ class UserUpdateRequest(BaseModel):
     username: str | None = None
     phone: str | None = None
     university: str | None = None
+    description: Annotated[str | None, StringConstraints(max_length=MAX_DESCRIPTION_WORDS)] = None
     avatar_url: str | None = None
     is_verified: bool = False
 

@@ -76,6 +76,7 @@ async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
     deleted_user_data = {
         "username": "Deleted User",
         "university": None,
+        "description": None,
         "avatar_url": None,
         "is_verified": False,
         "updated_at": datetime.now(timezone.utc),

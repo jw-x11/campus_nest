@@ -128,7 +128,7 @@ async def booking_exists(db: AsyncSession, booking_id: UUID) -> bool:
 async def check_overlapping_booking(
     db: AsyncSession,
     user_id: UUID,
-    space_id: UUID,
+    space_id: int,
     start_date: date,
     end_date: date,
 ) -> bool:

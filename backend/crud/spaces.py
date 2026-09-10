@@ -14,7 +14,7 @@ LISTING_LIFETIME = timedelta(days=30)
 MAX_SPACE_IMAGES = 10
 
 
-async def verify_space_ownership(db: AsyncSession, space_id: UUID, user_id: UUID) -> bool:
+async def verify_space_ownership(db: AsyncSession, space_id: int, user_id: UUID) -> bool:
     
     stm = select(exists().where(Space.id == space_id, Space.owner_id == user_id))
     result = await db.execute(stm)
@@ -48,14 +48,14 @@ async def create_space(db: AsyncSession, body: SpaceInfoRequest, user_id: UUID):
 
 
 
-async def get_space_by_id(db: AsyncSession, space_id: UUID):
+async def get_space_by_id(db: AsyncSession, space_id: int):
     stm = select(Space).where(Space.id == space_id)
     space = await db.execute(stm)
     return space.scalar_one_or_none()
 
 
 
-async def update_space_expired_at(db: AsyncSession, space_id: UUID) -> bool:
+async def update_space_expired_at(db: AsyncSession, space_id: int) -> bool:
     expired_at = datetime.now(timezone.utc) + LISTING_LIFETIME
     stm = update(Space).where(Space.id == space_id).values(expired_at=expired_at)
 
@@ -65,7 +65,7 @@ async def update_space_expired_at(db: AsyncSession, space_id: UUID) -> bool:
 
 
 
-async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: UUID) -> Space | None:
+async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: int) -> Space | None:
     update_at = datetime.now(timezone.utc)
     expired_at = datetime.now(timezone.utc) + LISTING_LIFETIME
 
@@ -83,7 +83,7 @@ async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: U
     return updated_space
 
 
-async def set_space_inactive(db: AsyncSession, space_id: UUID) -> bool:
+async def set_space_inactive(db: AsyncSession, space_id: int) -> bool:
 
     stm = (
         update(Space)
@@ -97,7 +97,7 @@ async def set_space_inactive(db: AsyncSession, space_id: UUID) -> bool:
 
 
 
-async def set_space_active(db: AsyncSession, space_id: UUID) -> bool:
+async def set_space_active(db: AsyncSession, space_id: int) -> bool:
     stm = update(Space).where(Space.id == space_id, Space.is_active.is_(False)).values(is_active=True, updated_at=datetime.now(timezone.utc))
     result = await db.execute(stm)
     await db.commit()
@@ -180,26 +180,26 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
 
 
 
-async def increase_view_count(db: AsyncSession, space_id: UUID, increment: int = 1) -> bool:
+async def increase_view_count(db: AsyncSession, space_id: int, increment: int = 1) -> bool:
     stm = update(Space).where(Space.id == space_id).values(view_count=Space.view_count + increment)
     result = await db.execute(stm)
     await db.commit()
     return result.rowcount > 0
 
 
-async def count_space_images(db: AsyncSession, space_id: UUID) -> int:
+async def count_space_images(db: AsyncSession, space_id: int) -> int:
     stm = select(func.count()).select_from(SpaceImage).where(SpaceImage.space_id == space_id)
     return (await db.execute(stm)).scalar_one()
 
 
-async def next_sort_order(db: AsyncSession, space_id: UUID) -> int:
+async def next_sort_order(db: AsyncSession, space_id: int) -> int:
     stm = select(func.coalesce(func.max(SpaceImage.sort_order), -1)).where(
         SpaceImage.space_id == space_id
     )
     return (await db.execute(stm)).scalar_one() + 1
 
 
-async def list_space_image_urls(db: AsyncSession, space_id: UUID) -> list[str]:
+async def list_space_image_urls(db: AsyncSession, space_id: int) -> list[str]:
     stm = (
         select(SpaceImage.url)
         .where(SpaceImage.space_id == space_id)
@@ -209,9 +209,9 @@ async def list_space_image_urls(db: AsyncSession, space_id: UUID) -> list[str]:
 
 
 async def list_space_image_urls_grouped(
-    db: AsyncSession, space_ids: list[UUID]
-) -> dict[UUID, list[str]]:
-    grouped: dict[UUID, list[str]] = {space_id: [] for space_id in space_ids}
+    db: AsyncSession, space_ids: list[int]
+) -> dict[int, list[str]]:
+    grouped: dict[int, list[str]] = {space_id: [] for space_id in space_ids}
     if not space_ids:
         return grouped
 
@@ -227,7 +227,7 @@ async def list_space_image_urls_grouped(
 
 
 async def upload_space_images(
-    db: AsyncSession, space_id: UUID, files: list[UploadFile]
+    db: AsyncSession, space_id: int, files: list[UploadFile]
 ) -> list[str]:
     if not files:
         raise HTTPException(status_code=400, detail="NO_FILES")

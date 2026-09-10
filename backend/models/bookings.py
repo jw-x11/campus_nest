@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, Text, text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -40,8 +40,8 @@ class Booking(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    space_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    space_id: Mapped[int] = mapped_column(
+        Integer,
         ForeignKey("spaces.id"),
         nullable=False,
     )

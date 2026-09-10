@@ -1,5 +1,4 @@
 from typing import Annotated
-from uuid import UUID
 
 from config.db_config import get_db
 from crud.spaces import get_space_by_id
@@ -68,7 +67,7 @@ async def get_history_list(
 async def add_history(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-    space_id: UUID,
+    space_id: int,
 ):
 
     space = await get_space_by_id(db, space_id)
@@ -89,7 +88,7 @@ async def add_history(
 async def delete_history(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-    space_id: UUID,
+    space_id: int,
 ):
 
     space = await get_space_by_id(db, space_id)

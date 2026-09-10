@@ -1,5 +1,4 @@
 from typing import Annotated
-from uuid import UUID
 
 from config.db_config import get_db
 from crud.saved_space import (
@@ -77,7 +76,7 @@ async def get_saved_list(
 async def save_space(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-    space_id: UUID,
+    space_id: int,
 ):  
 
     space = await get_space_by_id(db, space_id)
@@ -96,7 +95,7 @@ async def save_space(
 async def delete_saved_space(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-    space_id: UUID,
+    space_id: int,
 ):
     space = await get_space_by_id(db, space_id)
     if space is None:
@@ -113,7 +112,7 @@ async def delete_saved_space(
 async def get_saved_status(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-    space_id: UUID,
+    space_id: int,
 ):
 
     space = await get_space_by_id(db, space_id)

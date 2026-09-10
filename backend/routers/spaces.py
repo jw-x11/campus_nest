@@ -30,7 +30,7 @@ api_spaces = APIRouter()
 # TODO: All redis cache operations
 
 
-async def require_space_owner(db: AsyncSession, space_id: UUID, user_id: UUID) -> None:
+async def require_space_owner(db: AsyncSession, space_id: int, user_id: UUID) -> None:
     if not await verify_space_ownership(db, space_id, user_id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -115,7 +115,7 @@ async def post_space(
 
 
 @api_spaces.get("/{space_id}")
-async def get_space(space_id: UUID, db: Annotated[AsyncSession, Depends(get_db)]):
+async def get_space(space_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
     space = await get_space_by_id(db, space_id)
     if not space:
         raise HTTPException(status_code=404, detail="Space not found")
@@ -129,7 +129,7 @@ async def get_space(space_id: UUID, db: Annotated[AsyncSession, Depends(get_db)]
 
 @api_spaces.put("/renew/{space_id}")
 async def renew_space(
-    space_id: UUID,
+    space_id: int,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -147,7 +147,7 @@ async def renew_space(
 
 @api_spaces.put("/{space_id}")
 async def update_space(
-    space_id: UUID,
+    space_id: int,
     body: SpaceInfoRequest,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -167,7 +167,7 @@ async def update_space(
 
 @api_spaces.delete("/{space_id}")
 async def delete_space(
-    space_id: UUID,
+    space_id: int,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -180,7 +180,7 @@ async def delete_space(
 
 @api_spaces.post("/{space_id}/images")
 async def post_space_images(
-    space_id: UUID,
+    space_id: int,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     files: Annotated[list[UploadFile], File()],

@@ -1,5 +1,4 @@
 from datetime import datetime
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,5 +23,5 @@ class SavedSpaceListResponse(BaseModel):
 class SavedStatusResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    space_id: UUID
+    space_id: int
     saved: bool

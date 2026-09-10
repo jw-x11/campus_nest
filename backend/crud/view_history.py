@@ -26,7 +26,7 @@ async def get_view_history_list(db: AsyncSession, user_id: UUID, page: int, limi
 
 
 
-async def add_or_update_view_history(db: AsyncSession, user_id: UUID, space_id: UUID) -> ViewHistory:
+async def add_or_update_view_history(db: AsyncSession, user_id: UUID, space_id: int) -> ViewHistory:
 
     query = select(ViewHistory).where(ViewHistory.user_id == user_id, ViewHistory.space_id == space_id)
     result = await db.execute(query)
@@ -46,7 +46,7 @@ async def add_or_update_view_history(db: AsyncSession, user_id: UUID, space_id: 
 
 
 
-async def delete_view_history(db: AsyncSession, user_id: UUID, space_id: UUID) -> bool:
+async def delete_view_history(db: AsyncSession, user_id: UUID, space_id: int) -> bool:
     stm = delete(ViewHistory).where(ViewHistory.user_id == user_id, ViewHistory.space_id == space_id)
     result = await db.execute(stm)
     await db.commit()

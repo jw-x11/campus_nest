@@ -1,6 +1,5 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,7 +28,7 @@ class SpaceItem(BaseModel):
     # from_attributes: allow model_validate to work with ORM models
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
-    space_id: Annotated[UUID, Field(alias="id")]
+    space_id: Annotated[int, Field(alias="id", ge=1)]
     title: Annotated[str, Field(min_length=1, max_length=255)]
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
@@ -53,7 +52,7 @@ class SpaceItem(BaseModel):
 class SpaceItemReduced(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
-    space_id: Annotated[UUID, Field(alias="id")]
+    space_id: Annotated[int, Field(alias="id", ge=1)]
     title: Annotated[str, Field(min_length=1, max_length=255)]
     city: str
     price: Annotated[float, Field(ge=0)] = 0.0

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date
 
-from sqlalchemy import Text, Boolean, Date, DateTime, Index, Integer, Numeric, ForeignKey, text
+from sqlalchemy import Text, Boolean, Date, DateTime, Identity, Index, Integer, Numeric, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, ENUM
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -23,10 +23,10 @@ payment_type_enum = ENUM(
 class Space(Base):
     __tablename__ = "spaces"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        Integer,
+        Identity(always=False),
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -77,8 +77,8 @@ class SpaceImage(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    space_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=False
+    space_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("spaces.id", ondelete="CASCADE"), nullable=False
     )
     url: Mapped[str] = mapped_column(Text, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))

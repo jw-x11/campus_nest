@@ -25,7 +25,7 @@ async def get_saved_list(db: AsyncSession, user_id: UUID, page: int, limit: int)
 
 
 
-async def add_saved_space(db: AsyncSession, user_id: UUID, space_id: UUID) -> SavedSpace:
+async def add_saved_space(db: AsyncSession, user_id: UUID, space_id: int) -> SavedSpace:
 
     query = select(SavedSpace).where(SavedSpace.user_id == user_id, SavedSpace.space_id == space_id)
     result = await db.execute(query)
@@ -45,7 +45,7 @@ async def add_saved_space(db: AsyncSession, user_id: UUID, space_id: UUID) -> Sa
 
 
 
-async def delete_saved_space(db: AsyncSession, user_id: UUID, space_id: UUID) -> bool:
+async def delete_saved_space(db: AsyncSession, user_id: UUID, space_id: int) -> bool:
     stm = delete(SavedSpace).where(SavedSpace.user_id == user_id, SavedSpace.space_id == space_id)
     result = await db.execute(stm)
     await db.commit()
@@ -55,7 +55,7 @@ async def delete_saved_space(db: AsyncSession, user_id: UUID, space_id: UUID) ->
 
 
 
-async def is_space_saved(db: AsyncSession, user_id: UUID, space_id: UUID) -> bool:
+async def is_space_saved(db: AsyncSession, user_id: UUID, space_id: int) -> bool:
     stm = select(exists().where(SavedSpace.user_id == user_id, SavedSpace.space_id == space_id))
     result = await db.execute(stm)
     return bool(result.scalar())

@@ -68,7 +68,7 @@
 **Users**
 
 - `GET /users/me` — get my profile
-- `PUT /users/me` — update my profile (name, phone, university)
+- `PUT /users/me` — update my profile (name, phone, university, description ≤ 200 words)
 - `POST /users/me/avatar` — upload avatar to SeaweedFS
 - `GET /users/{id}` — get public profile of another user
 

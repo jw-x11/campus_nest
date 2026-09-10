@@ -138,6 +138,7 @@ Router file: `backend/routers/users.py` (already scaffolded).
   "username": "Jane Doe",
   "phone": "+1...",
   "university": "State U",
+  "description": "Junior with a dry basement closet two blocks from campus.",
   "is_verified": true,
   "avatar_url": "https://seaweedfs/.../avatar.jpg"
 }
@@ -156,11 +157,11 @@ Update editable fields.
 - **Auth:** required
 - **Request** (all optional)
 ```json
-{ "username": "New Name", "phone": "+1...", "university": "State U" }
+{ "username": "New Name", "phone": "+1...", "university": "State U", "description": "..." }
 ```
 - **Response `200`:** updated `UserResponse`.
-- **Logic:** email is **not** editable here (needs separate verification flow). Update
-  `updated_at`.
+- **Logic:** email is **not** editable here (needs separate verification flow). `description`
+  is optional, max **200 words**. Update `updated_at`.
 
 ### 2.3 `POST /users/me/avatar`
 Upload/replace avatar.
@@ -198,7 +199,7 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
 ### Shared schema — `SpaceResponse`
 ```json
 {
-  "id": "uuid",
+  "id": 1,
   "owner_id": "uuid",
   "type": "garage",
   "title": "Dry garage corner near campus",
@@ -401,7 +402,7 @@ the full watchlist.
 - **Auth:** required
 - **Response `200`**
 ```json
-{ "space_id": "uuid", "saved": true }
+{ "space_id": 1, "saved": true }
 ```
 - **Errors:** `401`. Always `200` with `saved: false` if there is no row (do not 404).
 
@@ -490,7 +491,7 @@ A nightly job writes `confirmed → active` when `start_date` begins and `active
 ```json
 {
   "id": "uuid",
-  "space_id": "uuid",
+  "space_id": 1,
   "renter_id": "uuid",
   "owner_id": "uuid",
   "start_date": "2026-06-05",
@@ -511,7 +512,7 @@ Request for a booking (with Redis availability lock to prevent double-booking).
 - **Auth:** required
 - **Request Body**
 ```json
-{ "space_id": "uuid", "start_date": "2026-06-05", "end_date": "2026-07-05" }
+{ "space_id": 1, "start_date": "2026-06-05", "end_date": "2026-07-05" }
 ```
 - **Response `201`:** `BookingResponse` (status `pending`).
 - **Logic**
@@ -542,7 +543,7 @@ Cancel a booking.
 - **Request Body**
 
   * ```json
-    {"space_id": "uuid"}
+    {"space_id": 1}
     ```
 
 - **Response `200`:** `BookingResponse`. Status is `cancelled` when cancel takes effect; otherwise status is unchanged and `cancel_requested_by` is the caller's role.
@@ -562,7 +563,7 @@ Cancel a booking.
 * **Request Body**
 
   * ```json
-    {"space_id": "uuid"}
+    {"space_id": 1}
     ```
 
 * **Logic**: owner accept the booking request: mark booking as `accepted`. Dates are held; other users cannot book the same range. Payment has not happened yet.
@@ -574,7 +575,7 @@ Cancel a booking.
 * **Request Body**
 
   * ```json
-    {"space_id": "uuid"}
+    {"space_id": 1}
     ```
 
 * **Logic**: owner declines the booking request: mark booking as `declined`. 
@@ -586,7 +587,7 @@ Cancel a booking.
 * **Request Body**
 
   * ```json
-    {"space_id": "uuid", "price":"int"}
+    {"space_id": 1, "price":"int"}
     ```
 
 * **Logic**: Owner offer a special deal (flat price) for user after negotiating. Over write the original price. Minimum 0.01
@@ -628,7 +629,7 @@ Cancel a booking.
 // ConversationResponse
 {
   "id": "uuid",
-  "space_id": "uuid",
+  "space_id": 1,
   "lister_id": "uuid",
   "renter_id": "uuid",
   "updated_at": "2026-07-22T10:00:00Z",
@@ -682,7 +683,7 @@ Router file: create `backend/routers/reviews.py` and register it in `main.py`.
   "booking_id": "uuid",
   "reviewer_id": "uuid",
   "reviewee_id": "uuid",
-  "space_id": "uuid",
+  "space_id": 1,
   "rating": 5,
   "comment": "Great space, easy access.",
   "created_at": "2026-07-22T10:00:00Z"
@@ -695,7 +696,7 @@ Submit a review after a booking completes.
 - **Auth:** required
 - **Request**
 ```json
-{ "booking_id": "uuid", "space_id": "uuid", "reviewee_id": null, "rating": 5, "comment": "..." }
+{ "booking_id": "uuid", "space_id": 1, "reviewee_id": null, "rating": 5, "comment": "..." }
 ```
   (`space_id` set → reviewing a space; `reviewee_id` set → reviewing a user. Exactly one.)
 - **Response `201`:** `ReviewResponse`.

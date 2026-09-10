@@ -138,6 +138,7 @@ export function mapUser(user) {
     username: user.username || '',
     phone: user.phone || '',
     university: user.university || '',
+    description: user.description || '',
     avatarUrl: user.avatar_url ?? user.avatarUrl ?? '',
     isVerified: Boolean(user.is_verified ?? user.isVerified),
     createdAt: user.created_at ?? user.createdAt,

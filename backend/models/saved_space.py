@@ -22,8 +22,8 @@ class SavedSpace(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    space_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    space_id: Mapped[int] = mapped_column(
+        Integer,
         ForeignKey("spaces.id", ondelete="CASCADE"),
         primary_key=True,
     )
