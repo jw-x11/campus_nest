@@ -12,9 +12,9 @@ load_dotenv()
 S3_ENDPOINT = os.getenv("S3_ENDPOINT") or os.getenv(
     "SEAWEEDFS_S3_ENDPOINT", "http://localhost:8333"
 )
-S3_BUCKET = os.getenv("S3_BUCKET", "campus-nest")
+S3_BUCKET = os.getenv("S3_BUCKET", "")
 S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", S3_ENDPOINT).rstrip("/")
-S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "campus")
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
 

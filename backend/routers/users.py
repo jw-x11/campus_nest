@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.users import User
 from schemas.users import UserInfoResponse, UserUpdateRequest
 from utils.response import success_response
 
-from crud.users import update_user
+from crud.users import update_user, upload_user_avatar
 from config.db_config import get_db
 import utils.deps as user_dep
 
@@ -25,6 +25,12 @@ async def update_current_user( request: UserUpdateRequest, current_user : User =
     user_info = UserInfoResponse.model_validate(user)   
     return success_response(message="Current user updated", data=user_info)
 
-# @api_users.get("/test")
-# async def test(result = Depends(user_dep.get_current_user)):
-#     return success_response(message="Test successful", data=result)
+@api_users.post("/me/avatar")
+async def upload_avatar(
+    current_user: User = Depends(user_dep.get_current_user),
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    user = await upload_user_avatar(db, current_user, file)
+    user_info = UserInfoResponse.model_validate(user)
+    return success_response(message="Avatar updated", data=user_info)

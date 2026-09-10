@@ -1,13 +1,17 @@
 from sqlalchemy import select, update, exists, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException, UploadFile
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 
 from schemas.spaces import SpaceInfoRequest, SpaceSearchQuery
-from models.spaces import Space
+from models.spaces import Space, SpaceImage
+from utils.s3 import read_image
+from config.s3db_config import delete_object, upload_bytes
 
 # Listings are auto-hidden one month after creation, and are renewable until then.
 LISTING_LIFETIME = timedelta(days=30)
+MAX_SPACE_IMAGES = 10
 
 
 async def verify_space_ownership(db: AsyncSession, space_id: UUID, user_id: UUID) -> bool:
@@ -181,3 +185,76 @@ async def increase_view_count(db: AsyncSession, space_id: UUID, increment: int =
     result = await db.execute(stm)
     await db.commit()
     return result.rowcount > 0
+
+
+async def count_space_images(db: AsyncSession, space_id: UUID) -> int:
+    stm = select(func.count()).select_from(SpaceImage).where(SpaceImage.space_id == space_id)
+    return (await db.execute(stm)).scalar_one()
+
+
+async def next_sort_order(db: AsyncSession, space_id: UUID) -> int:
+    stm = select(func.coalesce(func.max(SpaceImage.sort_order), -1)).where(
+        SpaceImage.space_id == space_id
+    )
+    return (await db.execute(stm)).scalar_one() + 1
+
+
+async def list_space_image_urls(db: AsyncSession, space_id: UUID) -> list[str]:
+    stm = (
+        select(SpaceImage.url)
+        .where(SpaceImage.space_id == space_id)
+        .order_by(SpaceImage.sort_order.asc(), SpaceImage.created_at.asc())
+    )
+    return list((await db.execute(stm)).scalars().all())
+
+
+async def list_space_image_urls_grouped(
+    db: AsyncSession, space_ids: list[UUID]
+) -> dict[UUID, list[str]]:
+    grouped: dict[UUID, list[str]] = {space_id: [] for space_id in space_ids}
+    if not space_ids:
+        return grouped
+
+    stm = (
+        select(SpaceImage)
+        .where(SpaceImage.space_id.in_(space_ids))
+        .distinct(SpaceImage.space_id)
+        .order_by(SpaceImage.sort_order.asc(), SpaceImage.created_at.asc())
+    )
+    for row in (await db.execute(stm)).scalars().all():
+        grouped.setdefault(row.space_id, []).append(row.url)
+    return grouped
+
+
+async def upload_space_images(
+    db: AsyncSession, space_id: UUID, files: list[UploadFile]
+) -> list[str]:
+    if not files:
+        raise HTTPException(status_code=400, detail="NO_FILES")
+
+    existing = await count_space_images(db, space_id)
+    if existing + len(files) > MAX_SPACE_IMAGES:
+        raise HTTPException(status_code=400, detail="IMAGE_LIMIT_REACHED")
+
+    uploaded_urls: list[str] = []
+    try:
+        sort_order = await next_sort_order(db, space_id)
+        # upload images to s3 and save url to database
+        for file in files:
+            body, content_type = await read_image(file)
+            url = await upload_bytes(
+                body, prefix=f"spaces/{space_id}", content_type=content_type
+            )
+            uploaded_urls.append(url)
+            space_img = SpaceImage(space_id=space_id, url=url, sort_order=sort_order)
+            db.add(space_img)
+            sort_order += 1
+        await db.commit()
+
+    except Exception:
+        # delete all uploaded images from s3 if error occurs
+        for url in uploaded_urls:
+            await delete_object(url)
+        raise
+
+    return uploaded_urls

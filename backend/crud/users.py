@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from uuid import UUID
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import HTTPException, status
+from fastapi import UploadFile
 
 from models.users import User
 from schemas.auth import AuthRegisterRequest
@@ -10,6 +10,8 @@ from schemas.auth import AuthRegisterRequest
 from utils.auth import hash_password
 from caches.auth import get_user_id_by_token
 from schemas.users import UserInfoResponse, UserUpdateRequest
+from utils.s3 import read_image
+from config.s3db_config import delete_object, upload_bytes
 
 async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
     query = select(User).where(User.username == username)
@@ -52,7 +54,14 @@ async def create_user(session: AsyncSession, user_data: AuthRegisterRequest) -> 
 async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRequest) -> User | None:
     # Pydantic convert to dict then convert into sqlalchemy orm
     update_at = datetime.now(timezone.utc)
-    query = update(User).where(User.email == email).values(**user_data.model_dump(exclude_unset=True, exclude_none=True), updated_at=update_at)
+    query = update(User).where(User.email == email).values(
+        **user_data.model_dump(
+            exclude_unset=True,
+            exclude_none=True,
+            exclude={"id", "email", "avatar_url", "is_verified"},
+        ),
+        updated_at=update_at,
+    )
     result = await session.execute(query)
     await session.commit()
     
@@ -77,3 +86,28 @@ async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
     if result.rowcount == 0:
         return False
     return True
+
+
+async def upload_user_avatar(session: AsyncSession, user: User, file: UploadFile) -> User:
+    body, content_type = await read_image(file)
+    url = await upload_bytes(body, prefix=f"avatars/{user.id}", content_type=content_type)
+    old_url = user.avatar_url
+    try:
+        query = (
+            update(User)
+            .where(User.id == user.id)
+            .values(avatar_url=url, updated_at=func.now())
+        )
+        await session.execute(query)
+        await session.commit()
+    except Exception:
+        await delete_object(url)
+        raise
+
+    if old_url and old_url != url:
+        await delete_object(old_url)
+
+    updated = await get_user_by_id(session, str(user.id))
+    if not updated:
+        raise RuntimeError("User not found after avatar upload")
+    return updated

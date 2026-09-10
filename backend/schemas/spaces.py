@@ -43,6 +43,7 @@ class SpaceItem(BaseModel):
     available_to: date
 
     view_count: int
+    images: list[str] = Field(default_factory=list)
 
     created_at: datetime
     updated_at: datetime

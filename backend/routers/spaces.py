@@ -1,5 +1,5 @@
 import math
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, File, Query, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from uuid import UUID
@@ -14,9 +14,12 @@ from crud.spaces import (
     get_all_spaces_by_owner,
     get_space_by_id,
     get_space_list,
+    list_space_image_urls,
+    list_space_image_urls_grouped,
     set_space_inactive,
     update_space_expired_at,
     update_space_info,
+    upload_space_images,
     verify_space_ownership,
 )
 
@@ -30,6 +33,18 @@ api_spaces = APIRouter()
 async def require_space_owner(db: AsyncSession, space_id: UUID, user_id: UUID) -> None:
     if not await verify_space_ownership(db, space_id, user_id):
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+async def to_space_item(space, image_urls: list[str] | None = None) -> SpaceItem:
+    item = SpaceItem.model_validate(space)
+    if image_urls is not None:
+        item.images = image_urls
+    return item
+
+
+async def to_space_items(db: AsyncSession, spaces: list) -> list[SpaceItem]:
+    urls_by_id = await list_space_image_urls_grouped(db, [space.id for space in spaces])
+    return [await to_space_item(space, urls_by_id.get(space.id, [])) for space in spaces]
     
 
 
@@ -52,7 +67,7 @@ async def get_all_spaces(
     if not space_list:
         return success_response(message="No spaces found", data=SpaceListResponse(total_count=0, spaces=[], has_more=False, total_pages=0))
 
-    space_list = [SpaceItem.model_validate(space) for space in space_list]
+    space_list = await to_space_items(db, space_list)
     space_list_response = SpaceListResponse(total_count=space_count, spaces=space_list, has_more=has_more, total_pages=total_pages)
     return success_response(message="Spaces found", data=space_list_response)
 
@@ -74,7 +89,7 @@ async def get_my_spaces(
             data=SpaceListResponse(total_count=0, spaces=[], has_more=False, total_pages=0),
         )
 
-    space_list = [SpaceItem.model_validate(space) for space in space_list]
+    space_list = await to_space_items(db, space_list)
     space_list_response = SpaceListResponse(
         total_count=space_count,
         spaces=space_list,
@@ -93,7 +108,7 @@ async def post_space(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     space = await create_space(db, body, user.id)
-    return success_response(message="Space created", data=space)
+    return success_response(message="Space created", data=await to_space_item(space, []))
 
 
 
@@ -104,8 +119,8 @@ async def get_space(space_id: UUID, db: Annotated[AsyncSession, Depends(get_db)]
     space = await get_space_by_id(db, space_id)
     if not space:
         raise HTTPException(status_code=404, detail="Space not found")
-    space_info = SpaceItem.model_validate(space)
-    return success_response(message="Space found", data=space_info)
+    images = await list_space_image_urls(db, space_id)
+    return success_response(message="Space found", data=await to_space_item(space, images))
 
 
 
@@ -141,7 +156,8 @@ async def update_space(
     result = await update_space_info(db, body, space_id)
     if not result:
         raise HTTPException(status_code=404, detail="Space not found")
-    return success_response(message="Space updated", data=result)
+    images = await list_space_image_urls(db, space_id)
+    return success_response(message="Space updated", data=await to_space_item(result, images))
 
 
 
@@ -160,5 +176,20 @@ async def delete_space(
     if not result:
         raise HTTPException(status_code=404, detail="Space not found")
     return success_response(message="Space deleted", data=None)
+
+
+@api_spaces.post("/{space_id}/images")
+async def post_space_images(
+    space_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    files: Annotated[list[UploadFile], File()],
+):
+    await require_space_owner(db, space_id, user.id)
+    space = await get_space_by_id(db, space_id)
+    if not space:
+        raise HTTPException(status_code=404, detail="Space not found")
+    urls = await upload_space_images(db, space_id, files)
+    return success_response(message="Images uploaded", data={"images": urls})
 
 
