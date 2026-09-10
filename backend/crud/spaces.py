@@ -219,12 +219,20 @@ async def list_space_image_urls_grouped(
         select(SpaceImage)
         .where(SpaceImage.space_id.in_(space_ids))
         .distinct(SpaceImage.space_id)
-        .order_by(SpaceImage.sort_order.asc(), SpaceImage.created_at.asc())
+        .order_by(
+            SpaceImage.space_id,
+            SpaceImage.sort_order.asc(),
+            SpaceImage.created_at.asc(),
+        )
     )
     for row in (await db.execute(stm)).scalars().all():
         grouped.setdefault(row.space_id, []).append(row.url)
     return grouped
 
+async def get_space_thumbnail_url(db: AsyncSession, space_id: int) -> str | None:
+    stm = select(SpaceImage.url).where(SpaceImage.space_id == space_id, SpaceImage.sort_order == 0).limit(1)
+    result = await db.execute(stm)
+    return result.scalar_one_or_none()
 
 async def upload_space_images(
     db: AsyncSession, space_id: int, files: list[UploadFile]

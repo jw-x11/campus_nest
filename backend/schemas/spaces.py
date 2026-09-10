@@ -57,6 +57,7 @@ class SpaceItemReduced(BaseModel):
     city: str
     price: Annotated[float, Field(ge=0)] = 0.0
     price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
+    thumbnail_url: str | None = None
 
     view_count: int
     updated_at: datetime
@@ -91,3 +92,6 @@ class SpaceListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True
     )
+
+class SpaceListReducedResponse(SpaceListResponse):
+    spaces: list[SpaceItemReduced]

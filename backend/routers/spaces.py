@@ -7,13 +7,14 @@ from uuid import UUID
 from utils.deps import get_current_user
 from models.users import User
 from config.db_config import get_db
-from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceListResponse, SpaceSearchQuery
+from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceItemReduced, SpaceListReducedResponse, SpaceListResponse, SpaceSearchQuery
 from utils.response import success_response
 from crud.spaces import (
     create_space,
     get_all_spaces_by_owner,
     get_space_by_id,
     get_space_list,
+    get_space_thumbnail_url,
     list_space_image_urls,
     list_space_image_urls_grouped,
     set_space_inactive,
@@ -65,14 +66,24 @@ async def get_all_spaces(
     total_pages = math.ceil(space_count / filters.page_size)
 
     if not space_list:
-        return success_response(message="No spaces found", data=SpaceListResponse(total_count=0, spaces=[], has_more=False, total_pages=0))
+        return success_response(message="No spaces found", data=SpaceListReducedResponse(total_count=0, spaces=[], has_more=False, total_pages=0))
 
-    space_list = await to_space_items(db, space_list)
-    space_list_response = SpaceListResponse(total_count=space_count, spaces=space_list, has_more=has_more, total_pages=total_pages)
+    space_list_reduced = []
+    
+    for space in space_list:
+        space_reduced = SpaceItemReduced.model_validate(space)
+        img_url = await get_space_thumbnail_url(db, space.id)
+        if img_url:
+            space_reduced.thumbnail_url = img_url
+        space_list_reduced.append(space_reduced)
+        
+    space_list_response = SpaceListReducedResponse(total_count=space_count, spaces=space_list_reduced, has_more=has_more, total_pages=total_pages)
     return success_response(message="Spaces found", data=space_list_response)
 
 
-@api_spaces.get("/mine")
+
+
+@api_spaces.get("/me")
 async def get_my_spaces(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
