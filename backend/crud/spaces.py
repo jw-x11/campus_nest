@@ -11,7 +11,6 @@ from config.s3db_config import delete_object, upload_bytes
 
 # Listings are auto-hidden one month after creation, and are renewable until then.
 LISTING_LIFETIME = timedelta(days=30)
-MAX_SPACE_IMAGES = 10
 
 
 async def verify_space_ownership(db: AsyncSession, space_id: int, user_id: UUID) -> bool:
@@ -198,7 +197,7 @@ async def next_sort_order(db: AsyncSession, space_id: int) -> int:
     )
     return (await db.execute(stm)).scalar_one() + 1
 
-
+# return all image urls for a space
 async def list_space_image_urls(db: AsyncSession, space_id: int) -> list[str]:
     stm = (
         select(SpaceImage.url)
@@ -207,7 +206,7 @@ async def list_space_image_urls(db: AsyncSession, space_id: int) -> list[str]:
     )
     return list((await db.execute(stm)).scalars().all())
 
-
+# return all image urls for a list of spaces
 async def list_space_image_urls_grouped(
     db: AsyncSession, space_ids: list[int]
 ) -> dict[int, list[str]]:
@@ -229,20 +228,17 @@ async def list_space_image_urls_grouped(
         grouped.setdefault(row.space_id, []).append(row.url)
     return grouped
 
+# get the first image url for a space: use for displaying a list of spaces
 async def get_space_thumbnail_url(db: AsyncSession, space_id: int) -> str | None:
     stm = select(SpaceImage.url).where(SpaceImage.space_id == space_id, SpaceImage.sort_order == 0).limit(1)
     result = await db.execute(stm)
     return result.scalar_one_or_none()
 
+
+
 async def upload_space_images(
     db: AsyncSession, space_id: int, files: list[UploadFile]
 ) -> list[str]:
-    if not files:
-        raise HTTPException(status_code=400, detail="NO_FILES")
-
-    existing = await count_space_images(db, space_id)
-    if existing + len(files) > MAX_SPACE_IMAGES:
-        raise HTTPException(status_code=400, detail="IMAGE_LIMIT_REACHED")
 
     uploaded_urls: list[str] = []
     try:

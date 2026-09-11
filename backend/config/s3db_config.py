@@ -25,7 +25,7 @@ EXT_BY_TYPE = {
     "image/webp": "webp",
     "image/gif": "gif",
 }
-MAX_BYTES = 10 * 1024 * 1024
+MAX_BYTES = 5 * 1024 * 1024
 
 _session = aioboto3.Session()
 _client_kwargs = {
@@ -48,13 +48,26 @@ async def s3_client():
 
 
 def public_url(key: str) -> str:
-    return f"{S3_PUBLIC_URL}/{S3_BUCKET}/{key}"
+    return f"{S3_PUBLIC_URL.rstrip('/')}/{key.lstrip('/')}"
+
+
+def _url_path(url: str) -> str:
+    if "://" in url:
+        return "/" + url.split("://", 1)[1].split("/", 1)[-1]
+    return url if url.startswith("/") else f"/{url}"
 
 
 def key_from_url(url: str) -> str | None:
-    prefix = f"{S3_PUBLIC_URL}/{S3_BUCKET}/"
-    if url.startswith(prefix):
-        return url[len(prefix) :]
+    if not url:
+        return None
+    path = _url_path(url)
+    prefixes = (
+        f"{S3_PUBLIC_URL.rstrip('/')}/",
+        f"/{S3_BUCKET}/",
+    )
+    for prefix in prefixes:
+        if path.startswith(prefix):
+            return path[len(prefix) :]
     return None
 
 

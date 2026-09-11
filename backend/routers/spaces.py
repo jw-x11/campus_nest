@@ -10,6 +10,7 @@ from config.db_config import get_db
 from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceItemReduced, SpaceListReducedResponse, SpaceListResponse, SpaceSearchQuery
 from utils.response import success_response
 from crud.spaces import (
+    count_space_images,
     create_space,
     get_all_spaces_by_owner,
     get_space_by_id,
@@ -23,6 +24,8 @@ from crud.spaces import (
     upload_space_images,
     verify_space_ownership,
 )
+
+MAX_SPACE_IMAGES = 10
 
 # Router: /api/spaces
 api_spaces = APIRouter()
@@ -42,7 +45,7 @@ async def to_space_item(space, image_urls: list[str] | None = None) -> SpaceItem
         item.images = image_urls
     return item
 
-
+# Add image urls to space items
 async def to_space_items(db: AsyncSession, spaces: list) -> list[SpaceItem]:
     urls_by_id = await list_space_image_urls_grouped(db, [space.id for space in spaces])
     return [await to_space_item(space, urls_by_id.get(space.id, [])) for space in spaces]
@@ -200,6 +203,13 @@ async def post_space_images(
     space = await get_space_by_id(db, space_id)
     if not space:
         raise HTTPException(status_code=404, detail="Space not found")
+    if not files:
+        raise HTTPException(status_code=400, detail="No files")
+
+    existing = await count_space_images(db, space_id)
+    if existing + len(files) > MAX_SPACE_IMAGES:
+        raise HTTPException(status_code=400, detail="IMAGE_LIMIT_REACHED")
+    
     urls = await upload_space_images(db, space_id, files)
     return success_response(message="Images uploaded", data={"images": urls})
 
