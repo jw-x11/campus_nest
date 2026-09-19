@@ -38,7 +38,7 @@ async def require_space_owner(db: AsyncSession, space_id: int, user_id: UUID) ->
     if not await verify_space_ownership(db, space_id, user_id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-
+# add image urls to a space item
 async def to_space_item(space, image_urls: list[str] | None = None) -> SpaceItem:
     item = SpaceItem.model_validate(space)
     if image_urls is not None:

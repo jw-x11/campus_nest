@@ -542,9 +542,9 @@ Cancel a booking.
 
 - **Request Body**
 
-  * ```json
-    {"space_id": 1}
-    ```
+```json
+{"space_id": 1}
+```
 
 - **Response `200`:** `BookingResponse`. Status is `cancelled` when cancel takes effect; otherwise status is unchanged and `cancel_requested_by` is the caller's role.
 - **Logic**
@@ -562,9 +562,9 @@ Cancel a booking.
 
 * **Request Body**
 
-  * ```json
-    {"space_id": 1}
-    ```
+```json
+{"space_id": 1}
+```
 
 * **Logic**: owner accept the booking request: mark booking as `accepted`. Dates are held; other users cannot book the same range. Payment has not happened yet.
 
@@ -574,9 +574,9 @@ Cancel a booking.
 
 * **Request Body**
 
-  * ```json
-    {"space_id": 1}
-    ```
+```json
+{"space_id": 1}
+```
 
 * **Logic**: owner declines the booking request: mark booking as `declined`. 
 
@@ -586,9 +586,9 @@ Cancel a booking.
 
 * **Request Body**
 
-  * ```json
-    {"space_id": 1, "price":"int"}
-    ```
+```json
+{"space_id": 1, "price":"int"}
+```
 
 * **Logic**: Owner offer a special deal (flat price) for user after negotiating. Over write the original price. Minimum 0.01
 
@@ -604,13 +604,13 @@ Cancel a booking.
 
 * **Body:** BookingUpdateRequest
 
-  * ```python
-    {
-        "booking_id": UUID,
-        "start_date": date,
-        "end_date": date
-    }
-    ```
+```python
+{
+    "booking_id": UUID,
+    "start_date": date,
+    "end_date": date
+}
+```
 
 * Logic: Update booking dates for renter
 

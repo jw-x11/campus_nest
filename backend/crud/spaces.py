@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from schemas.spaces import SpaceInfoRequest, SpaceSearchQuery
 from models.spaces import Space, SpaceImage
 from utils.s3 import read_image
-from config.s3db_config import delete_object, upload_bytes
+from config.s3db_config import delete_s3_object_by_url, upload_bytes
 
 # Listings are auto-hidden one month after creation, and are renewable until then.
 LISTING_LIFETIME = timedelta(days=30)
@@ -258,7 +258,7 @@ async def upload_space_images(
     except Exception:
         # delete all uploaded images from s3 if error occurs
         for url in uploaded_urls:
-            await delete_object(url)
+            await delete_s3_object_by_url(url)
         raise
 
     return uploaded_urls

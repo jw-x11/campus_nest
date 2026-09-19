@@ -12,6 +12,15 @@ from routers.bookings import api_bookings
 from routers.view_history import api_view_history
 from routers.saved_space import api_saved_space
 
+# TODO: Field validation (email, password, etc.)
+# TODO: Redis Cache
+# TODO: SocketIO live message
+# TODO: Reviews and comments section
+# TODO: map location integration
+# TODO: Add logging and analytics
+# TODO: Rate Limiting
+# TODO: Stripe payment integration
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

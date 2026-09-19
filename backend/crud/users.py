@@ -11,7 +11,7 @@ from utils.auth import hash_password
 from caches.auth import get_user_id_by_token
 from schemas.users import UserInfoResponse, UserUpdateRequest
 from utils.s3 import read_image
-from config.s3db_config import delete_object, upload_bytes
+from config.s3db_config import delete_s3_object_by_url, upload_bytes
 
 async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
     query = select(User).where(User.username == username)
@@ -102,11 +102,11 @@ async def upload_user_avatar(session: AsyncSession, user: User, file: UploadFile
         await session.execute(query)
         await session.commit()
     except Exception:
-        await delete_object(url)
+        await delete_s3_object_by_url(url)
         raise
 
     if old_url and old_url != url:
-        await delete_object(old_url)
+        await delete_s3_object_by_url(old_url)
 
     updated = await get_user_by_id(session, str(user.id))
     if not updated:

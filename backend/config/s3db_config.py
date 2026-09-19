@@ -43,21 +43,25 @@ _client_kwargs = {
 
 @asynccontextmanager
 async def s3_client():
+    """Yield a short-lived SeaweedFS S3 client; close it when the block ends."""
     async with _session.client(**_client_kwargs) as client:
         yield client
 
 
 def public_url(key: str) -> str:
+    """Build the browser-facing URL for an object key (stored in Postgres)."""
     return f"{S3_PUBLIC_URL.rstrip('/')}/{key.lstrip('/')}"
 
 
 def _url_path(url: str) -> str:
+    """Strip scheme and host so a full URL and a path can be compared the same way."""
     if "://" in url:
         return "/" + url.split("://", 1)[1].split("/", 1)[-1]
     return url if url.startswith("/") else f"/{url}"
 
 
 def key_from_url(url: str) -> str | None:
+    """Parse an S3 object key out of a stored public URL, or None if it is not ours."""
     if not url:
         return None
     path = _url_path(url)
@@ -83,10 +87,12 @@ async def connect() -> None:
 
 
 async def disconnect() -> None:
+    """No persistent S3 connection; kept to match db_config lifespan."""
     return
 
 
 async def upload_bytes(body: bytes, *, prefix: str, content_type: str) -> str:
+    """Put image bytes under prefix/{uuid}.ext and return the public URL."""
     ext = EXT_BY_TYPE.get(content_type, "bin")
     key = f"{prefix.rstrip('/')}/{uuid.uuid4()}.{ext}"
     async with s3_client() as s3:
@@ -99,7 +105,8 @@ async def upload_bytes(body: bytes, *, prefix: str, content_type: str) -> str:
     return public_url(key)
 
 
-async def delete_object(url: str) -> None:
+async def delete_s3_object_by_url(url: str) -> None:
+    """Delete the S3 object for a stored URL (old avatar or a failed upload batch)."""
     key = key_from_url(url)
     if not key:
         return
