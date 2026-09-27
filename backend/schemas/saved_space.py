@@ -1,6 +1,6 @@
 from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict
+from typing import Annotated
+from pydantic import BaseModel, ConfigDict, Field
 
 from schemas.spaces import SpaceItemReduced
 
@@ -15,7 +15,7 @@ class SavedSpaceItem(BaseModel):
 class SavedSpaceListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    total_count: int
+    total_count: Annotated[int, Field(ge=0)]
     has_more: bool
     saved_list: list[SavedSpaceItem]
 
@@ -23,5 +23,5 @@ class SavedSpaceListResponse(BaseModel):
 class SavedStatusResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    space_id: int
+    space_id: Annotated[int, Field(ge=1)]
     saved: bool

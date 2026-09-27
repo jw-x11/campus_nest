@@ -1,5 +1,5 @@
 from typing import Annotated
-from pydantic import BaseModel, ConfigDict, field_validator, StringConstraints
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, StringConstraints
 from datetime import datetime
 
 MAX_DESCRIPTION_WORDS = 200
@@ -28,7 +28,7 @@ class UserInfoResponse(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     id: str | None = None
-    email: str | None = None
+    email: Annotated[str | None, EmailStr] = None
     username: str | None = None
     phone: str | None = None
     university: str | None = None

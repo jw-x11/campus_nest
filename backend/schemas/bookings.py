@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class BookingRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    space_id: int
+    space_id: Annotated[int, Field(ge=1)]
     start_date: date
     end_date: date
 
@@ -38,7 +38,7 @@ class BookingResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, extra="ignore")
 
     id: UUID
-    space_id: int
+    space_id: Annotated[int, Field(ge=1)]
     renter_id: UUID
     owner_id: UUID
     start_date: date

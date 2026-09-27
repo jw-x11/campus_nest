@@ -84,10 +84,10 @@ class SpaceSearchQuery(BaseModel):
 
 class SpaceListResponse(BaseModel):
     
-    total_count: int
+    total_count: Annotated[int, Field(ge=0)]
     spaces: list[SpaceItem]
     has_more: bool
-    total_pages: int
+    total_pages: Annotated[int, Field(ge=1)]
 
     model_config = ConfigDict(
         populate_by_name=True
