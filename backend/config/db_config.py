@@ -14,7 +14,7 @@ load_dotenv()
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres",
+    "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/postgres",
 )
 
 # SQLAlchemy needs the async driver in the URL. The .env stores a plain

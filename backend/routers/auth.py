@@ -62,7 +62,7 @@ async def login(request: AuthLoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @api_auth.post("/logout")
-async def logout(db: AsyncSession = Depends(get_db), user : User = Depends(user_dep.get_current_user), authorization: str = Header(...)):
+async def logout(user : User = Depends(user_dep.get_current_user), authorization: str = Header(...)):
     token = authorization.split(" ")[1]
     await revoke_token(token)
     return success_response(message=f"User {user.username} logged out successfully", data=None)

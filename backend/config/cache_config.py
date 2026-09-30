@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import random
 from typing import Any
 
 from dotenv import load_dotenv
@@ -16,6 +17,9 @@ pool = redis.ConnectionPool.from_url(
 
 redis_client = redis.Redis(connection_pool=pool)
 
+MINUTE = 60
+HOUR = 3600
+DAY = 86400
 
 # Get cache by key and return as string
 async def get_cache(key: str) -> str | None:
@@ -27,12 +31,12 @@ async def get_cache(key: str) -> str | None:
 
 
 # Get cache by key and return as object
-async def get_json_cache(key: str) -> dict | None:
+async def get_json_cache(key: str) -> dict | list | None:
     try:
-        data = json.loads(await redis_client.get(key))
-        if data:
-            return json.loads(data)
-        return None
+        raw = await redis_client.get(key)
+        if raw is None:
+            return None
+        return json.loads(raw)
     except Exception as e:
         print(f"Error getting json cache: {e}")
         return None
@@ -61,6 +65,98 @@ async def delete_cache(key: str) -> bool:
         print(f"Error deleting cache: {e}")
         return False
 
+
+def _member(value: Any) -> str:
+    return str(value)
+
+
+# Add members to a Redis set and refresh the key TTL
+async def add_set_cache(key: str, *members: Any, ttl: int = HOUR) -> bool:
+    if not members:
+        return False
+    try:
+        await redis_client.sadd(key, *(_member(member) for member in members))
+        await redis_client.expire(key, ttl)
+        return True
+    except Exception as e:
+        print(f"Error adding set cache: {e}")
+        return False
+
+
+# Remove members from a Redis set
+async def remove_set_cache(key: str, *members: Any) -> bool:
+    if not members:
+        return False
+    try:
+        await redis_client.srem(key, *(_member(member) for member in members))
+        return True
+    except Exception as e:
+        print(f"Error removing set cache: {e}")
+        return False
+
+
+# Return every member of a Redis set
+async def get_set_cache(key: str) -> set[str] | None:
+    try:
+        return await redis_client.smembers(key)
+    except Exception as e:
+        print(f"Error getting set cache: {e}")
+        return None
+
+
+# Return whether a member is in a Redis set
+async def has_set_cache(key: str, member: Any) -> bool | None:
+    try:
+        return bool(await redis_client.sismember(key, _member(member)))
+    except Exception as e:
+        print(f"Error checking set cache: {e}")
+        return None
+
+
+# Add scored members to a Redis sorted set and refresh the key TTL
+# members: {member: score}
+async def add_zset_cache(key: str, members: dict[Any, int | float], ttl: int = HOUR) -> bool:
+    if not members:
+        return False
+    try:
+        mapping = {_member(member): score for member, score in members.items()}
+        await redis_client.zadd(key, mapping)
+        await redis_client.expire(key, ttl)
+        return True
+    except Exception as e:
+        print(f"Error adding zset cache: {e}")
+        return False
+
+
+# Remove members from a Redis sorted set
+async def remove_zset_cache(key: str, *members: Any) -> bool:
+    if not members:
+        return False
+    try:
+        await redis_client.zrem(key, *(_member(member) for member in members))
+        return True
+    except Exception as e:
+        print(f"Error removing zset cache: {e}")
+        return False
+
+
+# Return sorted-set members by score. reverse=True is highest score first.
+async def get_zset_cache(
+    key: str,
+    start: int = 0,
+    stop: int = -1,
+    *,
+    reverse: bool = False,
+) -> list[str] | None:
+    try:
+        return await redis_client.zrange(key, start, stop, desc=reverse)
+    except Exception as e:
+        print(f"Error getting zset cache: {e}")
+        return None
+
+
+def get_random_ttl_offset(offset: int = 600) -> int:
+    return random.randint(0-offset, offset-1)
 
 if __name__ == "__main__":
     asyncio.run(set_cache("dict", {"ab": "cd"}))

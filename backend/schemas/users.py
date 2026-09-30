@@ -1,11 +1,11 @@
 from typing import Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, StringConstraints
 from datetime import datetime
-
+from uuid import UUID
 MAX_DESCRIPTION_WORDS = 200
 
 class UserInfoResponse(BaseModel):
-    id: str
+    id: UUID
     email: str
     username: str
     phone: str | None = None

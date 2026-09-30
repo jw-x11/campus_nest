@@ -4,6 +4,7 @@ from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import UploadFile
 
+from caches.user import *
 from models.users import User
 from schemas.auth import AuthRegisterRequest
 
@@ -23,14 +24,39 @@ async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
     result = await session.execute(query)
     return result.scalar_one_or_none()
 
-async def get_user_by_id(session: AsyncSession, user_id: str) -> User | None:
+
+async def get_user_by_id(session: AsyncSession, user_id: UUID) -> User | None:
     query = select(User).where(User.id == user_id)
     result = await session.execute(query)
     return result.scalar_one_or_none()
 
+async def get_user_info_by_id(session: AsyncSession, user_id: UUID) -> UserInfoResponse | None:
+    # check cache
+    cached = await get_user_cache(user_id)
+    if cached is not None:
+        return cached
+    # if not in cache, get from database
+    user = await get_user_by_id(session, user_id)
+    if user is None:
+        return None
+    user_info = UserInfoResponse.model_validate(user)
+    # write to cache
+    await set_user_cache(user_id, user_info)
+    return user_info
 
-async def get_user_by_token(session: AsyncSession, token: str) -> User | None:
+async def get_user_by_token(session: AsyncSession, token: str) -> UserInfoResponse | None:
     user_id = await get_user_id_by_token(token)
+    if not user_id:
+        return None
+    user_info = await get_user_info_by_id(session, user_id)
+    if not user_info:
+        return None
+    return user_info
+
+# only use by auth
+async def get_raw_user_by_token(session: AsyncSession, token: str) -> User | None:
+    user_id = await get_user_id_by_token(token)
+
     if not user_id:
         return None
     user = await get_user_by_id(session, user_id)
@@ -68,6 +94,7 @@ async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRe
     if result.rowcount == 0:
         return None
 
+    await delete_user_cache(User.id)
     updated_user = await get_user_by_email(session, email)
     return UserInfoResponse.model_validate(updated_user)
 
@@ -86,6 +113,7 @@ async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
     await session.commit()
     if result.rowcount == 0:
         return False
+    await delete_user_cache(user_id)
     return True
 
 

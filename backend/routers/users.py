@@ -12,9 +12,8 @@ import utils.deps as user_dep
 api_users = APIRouter()
 
 @api_users.get("/me")
-async def get_current_user(current_user : User = Depends(user_dep.get_current_user)):
-    user_info = UserInfoResponse.model_validate(current_user)
-    return success_response(message="Current user retrieved", data=user_info)
+async def get_current_user(current_user : UserInfoResponse = Depends(user_dep.get_current_user_info)):
+    return success_response(message="Current user retrieved", data=current_user)
 
 @api_users.put("/me")
 async def update_current_user( request: UserUpdateRequest, current_user : User = Depends(user_dep.get_current_user), db: AsyncSession = Depends(get_db)):

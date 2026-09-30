@@ -1,6 +1,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
+from schemas.users import UserInfoResponse
 from config.db_config import get_db
 from crud.bookings import (
     check_overlapping_booking,
@@ -26,7 +27,7 @@ from schemas.bookings import (
     BookingUpdateRequest,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils.deps import get_current_user
+from utils.deps import get_current_user, get_current_user_info
 from utils.response import success_response
 
 # Router: /api/bookings
@@ -35,7 +36,7 @@ api_bookings = APIRouter()
 
 
 @api_bookings.get("/status")
-async def status(user: Annotated[User, Depends(get_current_user)]):
+async def status(user: Annotated[UserInfoResponse, Depends(get_current_user_info)]):
     return success_response(message=f"Hello {user.username}", data=None)
 
 
@@ -44,7 +45,7 @@ async def status(user: Annotated[User, Depends(get_current_user)]):
 async def create_booking(
     request: BookingRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
     # validate dates within the listing window and end > start
     if request.start_date >= request.end_date:
@@ -75,7 +76,7 @@ async def create_booking(
 @api_bookings.get("/me")
 async def get_my_bookings(
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     status: Annotated[
         Literal["pending", "accepted", "confirmed", "active", "completed", "ended"], Query()],
     view: Annotated[Literal["renter", "owner"], Query()],
@@ -96,9 +97,9 @@ async def get_my_bookings(
 async def get_booking_by_id(
     booking_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
-    if not await verify_booking_owner_or_renter(db, user, booking_id):
+    if not await verify_booking_owner_or_renter(db, user.id, booking_id):
         raise HTTPException(status_code=403, detail="You are not authorized to view this booking")
     booking = await get_booking_by_id(db, booking_id)
     if booking is None:
@@ -111,7 +112,7 @@ async def update_booking(
     booking_id: UUID,
     body: BookingUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
     # verify caller is renter
     if not await verify_booking_renter(db, user.id, booking_id):
@@ -149,7 +150,7 @@ async def update_booking(
 async def cancel_booking(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
 
     # verify caller is renter or space owner; set cancelled
@@ -190,7 +191,7 @@ async def cancel_booking(
 async def accept_booking(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
     # require listing owner; set status accepted; block overlapping dates
     if not await verify_booking_owner(db, user.id, body.booking_id):
@@ -217,7 +218,7 @@ async def accept_booking(
 async def decline_booking(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
     # require listing owner
     if not await verify_booking_owner(db, user.id, body.booking_id):
@@ -246,7 +247,7 @@ async def decline_booking(
 async def special_deal(
     body: BookingSpecialDealRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
     # require listing owner; set special_deal (min 0.01); recompute total_price
     if not await verify_booking_owner(db, user.id, body.booking_id):
