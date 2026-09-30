@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from uuid import UUID
 
-from utils.deps import get_current_user
+from schemas.users import UserInfoResponse
+from utils.deps import get_current_user, get_current_user_info
 from models.users import User
 from config.db_config import get_db
 from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceItemReduced, SpaceListReducedResponse, SpaceListResponse, SpaceSearchQuery
@@ -53,7 +54,7 @@ async def to_space_items(db: AsyncSession, spaces: list) -> list[SpaceItem]:
 
 
 @api_spaces.get("/status")
-async def status(user: Annotated[User, Depends(get_current_user)]):
+async def status(user: Annotated[UserInfoResponse, Depends(get_current_user_info)]):
     return success_response(message=f"Hello {user.username}", data=None)
 
 
@@ -88,7 +89,7 @@ async def get_all_spaces(
 
 @api_spaces.get("/me")
 async def get_my_spaces(
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     db: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
@@ -118,7 +119,7 @@ async def get_my_spaces(
 @api_spaces.post("/post")
 async def post_space(
     body: SpaceInfoRequest,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     space = await create_space(db, body, user.id)
@@ -144,7 +145,7 @@ async def get_space(space_id: int, db: Annotated[AsyncSession, Depends(get_db)])
 @api_spaces.put("/renew/{space_id}")
 async def renew_space(
     space_id: int,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await require_space_owner(db, space_id, user.id)
@@ -163,7 +164,7 @@ async def renew_space(
 async def update_space(
     space_id: int,
     body: SpaceInfoRequest,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await require_space_owner(db, space_id, user.id)
@@ -182,7 +183,7 @@ async def update_space(
 @api_spaces.delete("/{space_id}")
 async def delete_space(
     space_id: int,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await require_space_owner(db, space_id, user.id)
@@ -195,7 +196,7 @@ async def delete_space(
 @api_spaces.post("/{space_id}/images")
 async def post_space_images(
     space_id: int,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     db: Annotated[AsyncSession, Depends(get_db)],
     files: Annotated[list[UploadFile], File()],
 ):

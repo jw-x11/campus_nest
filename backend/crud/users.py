@@ -35,11 +35,14 @@ async def get_user_info_by_id(session: AsyncSession, user_id: UUID) -> UserInfoR
     cached = await get_user_cache(user_id)
     if cached is not None:
         return cached
+        
     # if not in cache, get from database
     user = await get_user_by_id(session, user_id)
     if user is None:
+        await set_user_cache(user_id, None, 180)
         return None
     user_info = UserInfoResponse.model_validate(user)
+
     # write to cache
     await set_user_cache(user_id, user_info)
     return user_info

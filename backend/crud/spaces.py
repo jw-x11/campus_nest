@@ -5,6 +5,7 @@ from uuid import UUID
 from datetime import datetime, timedelta, timezone
 
 from schemas.spaces import SpaceInfoRequest, SpaceSearchQuery
+from caches.space import *
 from models.spaces import Space, SpaceImage
 from utils.s3 import read_image
 from config.s3db_config import delete_s3_object_by_url, upload_bytes
@@ -47,10 +48,26 @@ async def create_space(db: AsyncSession, body: SpaceInfoRequest, user_id: UUID):
 
 
 
-async def get_space_by_id(db: AsyncSession, space_id: int):
+async def get_space_by_id(db: AsyncSession, space_id: int) -> SpaceItem | None:
+    # check cache
+    space = await get_space_cache(space_id)
+    if space is not None:
+        return space
+    
     stm = select(Space).where(Space.id == space_id)
-    space = await db.execute(stm)
-    return space.scalar_one_or_none()
+    result = await db.execute(stm)
+    space = result.scalar_one_or_none()
+
+    if space is None:
+        await set_space_cache(space_id, None, 180)
+        return None
+
+    space_item = SpaceItem.model_validate(space)
+
+    # write to cache
+    await set_space_cache(space_id, space_item)  
+
+    return space_item
 
 
 
@@ -60,6 +77,8 @@ async def update_space_expired_at(db: AsyncSession, space_id: int) -> bool:
 
     result = await db.execute(stm)
     await db.commit()
+    if result.rowcount > 0:
+        await delete_space_cache(space_id)
     return result.rowcount > 0
 
 
@@ -78,6 +97,7 @@ async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: i
     if result.rowcount == 0:
         return None
 
+    await delete_space_cache(space_id)
     updated_space = await get_space_by_id(db, space_id)
     return updated_space
 
@@ -91,6 +111,8 @@ async def set_space_inactive(db: AsyncSession, space_id: int) -> bool:
     )
     result = await db.execute(stm)
     await db.commit()
+    if result.rowcount > 0:
+        await delete_space_cache(space_id)
     return result.rowcount > 0
 
 
@@ -100,6 +122,8 @@ async def set_space_active(db: AsyncSession, space_id: int) -> bool:
     stm = update(Space).where(Space.id == space_id, Space.is_active.is_(False)).values(is_active=True, updated_at=datetime.now(timezone.utc))
     result = await db.execute(stm)
     await db.commit()
+    if result.rowcount > 0:
+        await delete_space_cache(space_id)
     return result.rowcount > 0
 
 
