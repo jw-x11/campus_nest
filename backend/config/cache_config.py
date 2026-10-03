@@ -192,6 +192,12 @@ async def count_zset_cache(key: str) -> int | None:
         print(f"Error counting zset cache: {e}")
         return None
 
+async def get_zset_score(key: str, member: Any) -> float | None:
+    try:
+        return await redis_client.zscore(key, _member(member))
+    except Exception as e:
+        print(f"Error getting zset score: {e}")
+        return None
 
 def get_random_ttl_offset(offset: int = 600) -> int:
     return random.randint(0-offset, offset-1)

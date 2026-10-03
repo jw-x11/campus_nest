@@ -1,7 +1,13 @@
 from datetime import datetime
 from uuid import UUID
 
-from caches.saved_space import add_saved_id, get_saved_id_page, remove_saved_id, set_saved_ids
+from caches.saved_space import (
+    add_saved_id,
+    check_is_saved,
+    get_saved_id_page,
+    remove_saved_id,
+    set_saved_ids,
+)
 from crud.spaces import hydrate_space_list
 from models.saved_space import SavedSpace
 from schemas.spaces import SpaceItem
@@ -72,6 +78,13 @@ async def delete_saved_space(db: AsyncSession, user_id: UUID, space_id: int) -> 
 
 
 async def is_space_saved(db: AsyncSession, user_id: UUID, space_id: int) -> bool:
+    # if cache (ready = 1) exists, then check cache
+    # if cached zscore exists, then saved=true, else false
+    cached = await check_is_saved(user_id, space_id)
+    if cached is not None:
+        return cached
+
+    # check db if cached not exists
     stm = select(exists().where(SavedSpace.user_id == user_id, SavedSpace.space_id == space_id))
     result = await db.execute(stm)
     return bool(result.scalar())

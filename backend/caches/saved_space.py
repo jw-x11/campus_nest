@@ -72,3 +72,10 @@ async def remove_saved_id(user_id: UUID, space_id: int) -> None:
     if not await saved_list_is_cached(user_id):
         return
     await remove_zset_cache(_ids_key(user_id), space_id)
+
+
+async def check_is_saved(user_id: UUID, space_id: int) -> bool | None:
+    if not await saved_list_is_cached(user_id):
+        return None
+    score = await get_zset_score(_ids_key(user_id), space_id)
+    return score is not None

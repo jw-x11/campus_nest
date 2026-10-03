@@ -14,6 +14,7 @@ from config.s3db_config import delete_s3_object_by_url, upload_bytes
 # Listings are auto-hidden one month after creation, and are renewable until then.
 LISTING_LIFETIME = timedelta(days=30)
 
+# TODO: Cache user owned space id, can use it to check ownership
 
 async def verify_space_ownership(db: AsyncSession, space_id: int, user_id: UUID) -> bool:
     
