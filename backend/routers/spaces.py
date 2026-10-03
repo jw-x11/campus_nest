@@ -32,8 +32,6 @@ MAX_SPACE_IMAGES = 10
 api_spaces = APIRouter()
 
 
-# TODO: All redis cache operations
-
 
 async def require_space_owner(db: AsyncSession, space_id: int, user_id: UUID) -> None:
     if not await verify_space_ownership(db, space_id, user_id):
@@ -61,7 +59,7 @@ async def status(user: Annotated[UserInfoResponse, Depends(get_current_user_info
 
 
 @api_spaces.get("/all")
-async def get_all_spaces(
+async def get_space_list_by_query(
     filters: Annotated[SpaceSearchQuery, Query()],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):

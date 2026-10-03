@@ -158,6 +158,12 @@ async def get_zset_cache(
 def get_random_ttl_offset(offset: int = 600) -> int:
     return random.randint(0-offset, offset-1)
 
+
+async def mget_cache(keys: list[str]) -> list[str | None]:
+    return await redis_client.mget(keys)
+
+
+
 if __name__ == "__main__":
     asyncio.run(set_cache("dict", {"ab": "cd"}))
     asyncio.run(delete_cache("test"))

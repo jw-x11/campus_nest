@@ -1,3 +1,4 @@
+from typing import List
 from sqlalchemy import select, update, exists, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, UploadFile
@@ -146,11 +147,42 @@ async def get_all_spaces_by_owner(db: AsyncSession, owner_id: UUID, page: int, p
     return list[Space](result.scalars().all()), total_count
 
 
+CACHE_SPACES_COUNT = 500
+
+async def batch_get_spaces(db: AsyncSession, space_ids: list[int]) -> list[Space]:
+    stm = select(Space).where(Space.id.in_(space_ids))
+    result = await db.execute(stm)
+    return list[Space](result.scalars().all())
 
 
-async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[Space], int]:
+async def hydrate_space_list(db: AsyncSession, space_ids: list[int]) -> list[SpaceItem]:
+    if not space_ids:
+        return []
+
+    cached_list = await mget_space_details(space_ids)
+    spaces_by_id: dict[int, SpaceItem] = {space.id: space for space in cached_list}
+
+    missing_ids = [space_id for space_id in space_ids if space_id not in spaces_by_id]
+    if missing_ids:
+        for space in await batch_get_spaces(db, missing_ids):
+            spaces_by_id[space.id] = SpaceItem.model_validate(space)
+
+    return [spaces_by_id[space_id] for space_id in space_ids if space_id in spaces_by_id]
+
+
+async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[SpaceItem], int]:
     conditions = [Space.is_active.is_(True), Space.expired_at > datetime.now(timezone.utc)]
 
+    offset = (filters.page - 1) * filters.page_size
+
+    # get id from cache and hydrate space list
+    cache_key = space_search_cache_key(filters)
+    cached_ids = await get_space_search_ids(cache_key)
+    if cached_ids is not None:
+        cached_result: List[SpaceItem] = await hydrate_space_list(db, cached_ids[offset:offset+filters.page_size])
+        return cached_result, len(cached_ids)
+
+    # build condition for database query
     if filters.keyword:
         pattern = f"%{filters.keyword}%"
         conditions.append(or_(
@@ -187,19 +219,20 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
     # Tiebreaker keeps paging stable when the sort key has duplicates.
     order_by.append(Space.id.asc())
 
-    count_stm = select(func.count()).select_from(Space).where(*conditions)
-    count_result = await db.execute(count_stm)
-    total_count = count_result.scalar_one()
-
-    offset = (filters.page - 1) * filters.page_size
     stm = (select(Space)
            .where(*conditions)
            .order_by(*order_by)
-           .offset(offset)
-           .limit(filters.page_size))
+           .limit(CACHE_SPACES_COUNT))
 
     result = await db.execute(stm)
-    return list[Space](result.scalars().all()), total_count
+    space_list = result.scalars().all()
+
+    # write back to cache
+    space_ids = [space.id for space in space_list]
+    await cache_space_search_results(cache_key, space_ids)
+
+    splice = [SpaceItem.model_validate(space) for space in space_list[offset:offset+filters.page_size]]
+    return splice, len(space_list)
 
 
 

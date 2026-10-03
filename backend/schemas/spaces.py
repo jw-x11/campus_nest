@@ -28,7 +28,7 @@ class SpaceItem(BaseModel):
     # from_attributes: allow model_validate to work with ORM models
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
-    space_id: Annotated[int, Field(alias="id", ge=1)]
+    id: Annotated[int, Field(alias="space_id", ge=1)]
     title: Annotated[str, Field(min_length=1, max_length=255)]
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
@@ -87,7 +87,7 @@ class SpaceListResponse(BaseModel):
     total_count: Annotated[int, Field(ge=0)]
     spaces: list[SpaceItem]
     has_more: bool
-    total_pages: Annotated[int, Field(ge=1)]
+    total_pages: Annotated[int, Field(ge=0)]
 
     model_config = ConfigDict(
         populate_by_name=True
