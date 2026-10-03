@@ -21,6 +21,21 @@ MINUTE = 60
 HOUR = 3600
 DAY = 86400
 
+async def update_ttl(key: str, ttl: int) -> bool:
+    try:
+        await redis_client.expire(key, ttl)
+        return True
+    except Exception as e:
+        print(f"Error updating ttl: {e}")
+        return False
+
+async def get_ttl(key: str) -> int:
+    try:
+        return await redis_client.ttl(key)
+    except Exception as e:
+        print(f"Error getting ttl: {e}")
+        return 0
+
 # Get cache by key and return as string
 async def get_cache(key: str) -> str | None:
     try:
