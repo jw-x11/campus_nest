@@ -165,7 +165,10 @@ async def hydrate_space_list(db: AsyncSession, space_ids: list[int]) -> list[Spa
     missing_ids = [space_id for space_id in space_ids if space_id not in spaces_by_id]
     if missing_ids:
         for space in await batch_get_spaces(db, missing_ids):
-            spaces_by_id[space.id] = SpaceItem.model_validate(space)
+            space_item = SpaceItem.model_validate(space)
+            spaces_by_id[space.id] = space_item
+            await set_space_cache(space.id, space_item)
+
 
     return [spaces_by_id[space_id] for space_id in space_ids if space_id in spaces_by_id]
 

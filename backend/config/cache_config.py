@@ -170,6 +170,29 @@ async def get_zset_cache(
         return None
 
 
+# Same slice as get_zset_cache, including each member's score.
+async def get_zset_cache_with_scores(
+    key: str,
+    start: int = 0,
+    stop: int = -1,
+    *,
+    reverse: bool = False,
+) -> list[tuple[str, float]] | None:
+    try:
+        return await redis_client.zrange(key, start, stop, desc=reverse, withscores=True)
+    except Exception as e:
+        print(f"Error getting zset cache with scores: {e}")
+        return None
+
+
+async def count_zset_cache(key: str) -> int | None:
+    try:
+        return await redis_client.zcard(key)
+    except Exception as e:
+        print(f"Error counting zset cache: {e}")
+        return None
+
+
 def get_random_ttl_offset(offset: int = 600) -> int:
     return random.randint(0-offset, offset-1)
 

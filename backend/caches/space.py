@@ -7,7 +7,9 @@ from config.cache_config import *
 from schemas.spaces import SpaceItem, SpaceSearchQuery
 
 space_cache_key = "space:details:{id}"
-ttl = 1 * HOUR + get_random_ttl_offset()
+
+def _ttl() -> int:
+    return  1 * HOUR + get_random_ttl_offset(1000)
 
 CACHE_SPACES_COUNT = 500
 SPACE_SEARCH_CACHE_TTL = 300
@@ -22,7 +24,7 @@ async def get_space_cache(id: int) -> SpaceItem | None:
 async def set_space_cache(id: int, space: SpaceItem) -> bool:
     key = space_cache_key.format(id=id)
     space_dict = space.model_dump(mode="json")
-    return await set_cache(key, space_dict, ttl)
+    return await set_cache(key, space_dict, _ttl())
     
 
 async def delete_space_cache(id: int) -> bool:
