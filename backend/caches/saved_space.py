@@ -6,6 +6,7 @@ from config.cache_config import *
 saved_ids_key = "saved:ids:{user_id}"
 saved_ready_key = "saved:ready:{user_id}"
 SAVED_LIST_TTL = DAY
+SAVED_COUNT_TTL = 60
 
 
 def _ids_key(user_id: UUID) -> str:
@@ -79,3 +80,12 @@ async def check_is_saved(user_id: UUID, space_id: int) -> bool | None:
         return None
     score = await get_zset_score(_ids_key(user_id), space_id)
     return score is not None
+
+async def set_cached_saved_count(space_id: int, count: int) -> None:
+    count_key = f"saved:count:{space_id}"
+    ttl = SAVED_COUNT_TTL + get_random_ttl_offset(10)
+    await set_cache(count_key, count, ttl=ttl, nx=True)
+
+async def get_cached_saved_count(space_id: int) -> int | None:
+    saved_count = await get_cache(f"saved:count:{space_id}")
+    return int(saved_count) if saved_count is not None else None

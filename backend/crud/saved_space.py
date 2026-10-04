@@ -4,14 +4,16 @@ from uuid import UUID
 from caches.saved_space import (
     add_saved_id,
     check_is_saved,
+    get_cached_saved_count,
     get_saved_id_page,
     remove_saved_id,
+    set_cached_saved_count,
     set_saved_ids,
 )
 from crud.spaces import hydrate_space_list
 from models.saved_space import SavedSpace
 from schemas.spaces import SpaceItem
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -90,3 +92,15 @@ async def is_space_saved(db: AsyncSession, user_id: UUID, space_id: int) -> bool
     return bool(result.scalar())
 
 
+async def get_saved_count(db: AsyncSession, space_id: int) -> int:
+
+    cached = await get_cached_saved_count(space_id)
+    if cached is not None:
+        return cached
+
+    stm = select(func.count()).where(SavedSpace.space_id == space_id)
+    result = await db.execute(stm)
+    count = result.scalar()
+
+    await set_cached_saved_count(space_id, count)
+    return count

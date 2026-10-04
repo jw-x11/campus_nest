@@ -3,6 +3,7 @@ from typing import Annotated
 from config.db_config import get_db
 from crud.saved_space import (
     add_saved_space,
+    get_saved_count,
     is_space_saved,
 )
 from crud.saved_space import (
@@ -122,3 +123,12 @@ async def get_saved_status(
     saved = await is_space_saved(db, user.id, space_id)
     response = SavedStatusResponse(space_id=space_id, saved=saved)
     return success_response(message="Saved status retrieved", data=response)
+
+
+@api_saved_space.get("/count")
+async def get_post_saved_count(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    space_id: int,
+):
+    count = await get_saved_count(db, space_id)
+    return success_response(message="OK", data=count)

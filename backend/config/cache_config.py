@@ -57,15 +57,21 @@ async def get_json_cache(key: str) -> dict | list | None:
         return None
 
 
-# Set cache by key and value
-async def set_cache(key: str, value: Any, ttl: int = 3600) -> bool:
+# Set cache by key and value. nx=True writes only when the key is missing.
+async def set_cache(key: str, value: Any, ttl: int = 3600, *, nx: bool = False) -> bool:
+    '''
+    'value' can be a dictionary or list. If it is, it will be converted to a JSON string.\n
+    'ttl' is the time to live in seconds.\n
+    'nx' is a boolean flag to indicate whether to set the key only if it does not exist.\n
+    Returns True if the key was set, False otherwise.\n
+    '''
     try:
         # check if value is a dictionary or list
         if isinstance(value, (dict, list)):
             value = json.dumps(value, ensure_ascii=False)
         # set cache
-        await redis_client.set(key, value, ex=ttl)
-        return True
+        result = await redis_client.set(key, value, ex=ttl, nx=nx)
+        return bool(result)
     except Exception as e:
         print(f"Error setting cache: {e}")
         return False
