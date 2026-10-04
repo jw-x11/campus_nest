@@ -1,5 +1,5 @@
 from typing import List
-from sqlalchemy import select, update, exists, func, or_
+from sqlalchemy import bindparam, select, update, exists, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, UploadFile
 from uuid import UUID
@@ -45,6 +45,8 @@ async def create_space(db: AsyncSession, body: SpaceInfoRequest, user_id: UUID):
     db.add(space)
     await db.commit()
     await db.refresh(space)
+    await delete_space_cache(space.id)
+    await delete_view_count_cache(space.id)
     return space
 
 
@@ -249,12 +251,62 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
 
 
 
-async def increase_view_count(db: AsyncSession, space_id: int, increment: int = 1) -> bool:
-    """Add to a listing's view count."""
-    stm = update(Space).where(Space.id == space_id).values(view_count=Space.view_count + increment)
-    result = await db.execute(stm)
-    await db.commit()
-    return result.rowcount > 0
+VIEW_FLUSH_BATCH_SIZE = 500
+
+
+async def increase_view_count(db: AsyncSession, space_id: int, increment: int = 1) -> int | None:
+    """Add views in Redis and return the new total. A cold counter starts from spaces.view_count."""
+    if await get_view_count_cache(space_id) is None:
+        stored = await db.scalar(select(Space.view_count).where(Space.id == space_id))
+        if stored is None:
+            return None
+        await seed_view_count_cache(space_id, stored)
+    return await increment_view_count_cache(space_id, increment)
+
+
+async def get_view_count(space_id: int) -> int | None:
+    """View count for a space, only from the cache when present, None otherwise."""
+    return await get_view_count_cache(space_id)
+
+
+async def flush_view_counts(db: AsyncSession, batch_size: int = VIEW_FLUSH_BATCH_SIZE) -> int:
+    """Write every dirty Redis view total to spaces.view_count. Returns how many rows were sent."""
+    table = Space.__table__
+    # GREATEST keeps a counter that restarted below the stored total from lowering it.
+    stm = (
+        update(table)
+        .where(table.c.id == bindparam("b_id"))
+        .values(view_count=func.greatest(table.c.view_count, bindparam("b_count")))
+    )
+
+    flushed = 0
+    while True:
+        space_ids = await pop_dirty_view_ids(batch_size)
+        if not space_ids:
+            break
+
+        try:
+            counts = await mget_view_counts_cache(space_ids)
+            rows = [
+                {"b_id": space_id, "b_count": count}
+                for space_id, count in zip(space_ids, counts)
+                if count is not None
+            ]
+            if rows:
+                conn = await db.connection()
+                await conn.execute(stm, rows)
+                await db.commit()
+                flushed += len(rows)
+        except BaseException:
+            # Includes cancellation at shutdown, so the final flush still sees these ids.
+            await db.rollback()
+            await mark_view_counts_dirty(space_ids)
+            raise
+
+        if len(space_ids) < batch_size:
+            break
+    return flushed
+
 
 
 async def count_space_images(db: AsyncSession, space_id: int) -> int:

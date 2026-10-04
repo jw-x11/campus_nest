@@ -17,6 +17,8 @@ from crud.spaces import (
     get_space_by_id,
     get_space_list,
     get_space_thumbnail_url,
+    get_view_count,
+    increase_view_count,
     list_space_image_urls,
     list_space_image_urls_grouped,
     set_space_inactive,
@@ -127,16 +129,19 @@ async def post_space(
 
 
 
-@api_spaces.get("/{space_id}")
-async def get_space(space_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
-    space = await get_space_by_id(db, space_id)
-    if not space:
-        raise HTTPException(status_code=404, detail="Space not found")
-    images = await list_space_image_urls(db, space_id)
-    return success_response(message="Space found", data=await to_space_item(space, images))
-
-
-
+# Declared before /{space_id}, or "views" is parsed as a space id.
+@api_spaces.get("/views")
+async def get_space_views(
+    space_id: Annotated[int, Query(alias="id", ge=1)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    view_count = await get_view_count(space_id)
+    if view_count is None:
+        space = await get_space_by_id(db, space_id)
+        if not space:
+            raise HTTPException(status_code=404, detail="Space not found")
+        view_count = space.view_count
+    return success_response(message="Space views retrieved", data=view_count)
 
 
 
@@ -153,6 +158,20 @@ async def renew_space(
     return success_response(message="Space renewed", data=None)
 
 
+
+
+
+@api_spaces.get("/{space_id}")
+async def get_space(space_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    space = await get_space_by_id(db, space_id)
+    if not space:
+        raise HTTPException(status_code=404, detail="Space not found")
+    view_count = await increase_view_count(db, space_id)
+    images = await list_space_image_urls(db, space_id)
+    item = await to_space_item(space, images)
+    if view_count is not None:
+        item.view_count = view_count
+    return success_response(message="Space found", data=item)
 
 
 
@@ -211,5 +230,3 @@ async def post_space_images(
     
     urls = await upload_space_images(db, space_id, files)
     return success_response(message="Images uploaded", data={"images": urls})
-
-

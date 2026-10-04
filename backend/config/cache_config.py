@@ -22,6 +22,7 @@ HOUR = 3600
 DAY = 86400
 
 async def update_ttl(key: str, ttl: int) -> bool:
+    """Set a key's TTL in seconds."""
     try:
         await redis_client.expire(key, ttl)
         return True
@@ -30,14 +31,15 @@ async def update_ttl(key: str, ttl: int) -> bool:
         return False
 
 async def get_ttl(key: str) -> int:
+    """Remaining TTL in seconds. Returns 0 when the lookup fails."""
     try:
         return await redis_client.ttl(key)
     except Exception as e:
         print(f"Error getting ttl: {e}")
         return 0
 
-# Get cache by key and return as string
 async def get_cache(key: str) -> str | None:
+    """String value for this key, or None when it is missing."""
     try:
         return await redis_client.get(key)
     except Exception as e:
@@ -45,8 +47,8 @@ async def get_cache(key: str) -> str | None:
         return None
 
 
-# Get cache by key and return as object
 async def get_json_cache(key: str) -> dict | list | None:
+    """JSON object or list for this key, or None when it is missing or invalid."""
     try:
         raw = await redis_client.get(key)
         if raw is None:
@@ -77,8 +79,8 @@ async def set_cache(key: str, value: Any, ttl: int = 3600, *, nx: bool = False) 
         return False
 
 
-# Delete cache by key
 async def delete_cache(key: str) -> bool:
+    """Delete a key."""
     try:
         await redis_client.delete(key)
         return True
@@ -88,11 +90,12 @@ async def delete_cache(key: str) -> bool:
 
 
 def _member(value: Any) -> str:
+    """String form of value, one set or sorted-set element."""
     return str(value)
 
 
-# Add members to a Redis set and refresh the key TTL
 async def add_set_cache(key: str, *members: Any, ttl: int = HOUR) -> bool:
+    """Add members to a set and refresh its TTL. members are the elements to store, such as ids."""
     if not members:
         return False
     try:
@@ -104,8 +107,8 @@ async def add_set_cache(key: str, *members: Any, ttl: int = HOUR) -> bool:
         return False
 
 
-# Remove members from a Redis set
 async def remove_set_cache(key: str, *members: Any) -> bool:
+    """Remove members from a set. members are the elements to drop."""
     if not members:
         return False
     try:
@@ -115,9 +118,18 @@ async def remove_set_cache(key: str, *members: Any) -> bool:
         print(f"Error removing set cache: {e}")
         return False
 
+async def increment_cache(key: str, increment: int = 1, ex: int = None) -> int:
+    """Increment the value of a key by increment. The key must already exist and hold a numeric value."""
+    try:
+        result = await redis_client.incrby(key, increment)
+        await update_ttl(key, ex)
+        return result
+    except Exception as e:
+        print(f"Error incrementing cache: {e}")
+        return 0
 
-# Return every member of a Redis set
 async def get_set_cache(key: str) -> set[str] | None:
+    """Every member of a set."""
     try:
         return await redis_client.smembers(key)
     except Exception as e:
@@ -125,8 +137,8 @@ async def get_set_cache(key: str) -> set[str] | None:
         return None
 
 
-# Return whether a member is in a Redis set
 async def has_set_cache(key: str, member: Any) -> bool | None:
+    """True when member is in the set. member is one element, such as an id."""
     try:
         return bool(await redis_client.sismember(key, _member(member)))
     except Exception as e:
@@ -137,6 +149,7 @@ async def has_set_cache(key: str, member: Any) -> bool | None:
 # Add scored members to a Redis sorted set and refresh the key TTL
 # members: {member: score}
 async def add_zset_cache(key: str, members: dict[Any, int | float], ttl: int = HOUR) -> bool:
+    """Add scored members to a sorted set and refresh its TTL. members maps each element to its sort score."""
     if not members:
         return False
     try:
@@ -149,8 +162,8 @@ async def add_zset_cache(key: str, members: dict[Any, int | float], ttl: int = H
         return False
 
 
-# Remove members from a Redis sorted set
 async def remove_zset_cache(key: str, *members: Any) -> bool:
+    """Remove members from a sorted set. members are the elements to drop."""
     if not members:
         return False
     try:
@@ -161,7 +174,6 @@ async def remove_zset_cache(key: str, *members: Any) -> bool:
         return False
 
 
-# Return sorted-set members by score. reverse=True is highest score first.
 async def get_zset_cache(
     key: str,
     start: int = 0,
@@ -169,6 +181,7 @@ async def get_zset_cache(
     *,
     reverse: bool = False,
 ) -> list[str] | None:
+    """Sorted-set members from rank start through stop. stop=-1 runs to the end. reverse=True is highest score first."""
     try:
         return await redis_client.zrange(key, start, stop, desc=reverse)
     except Exception as e:
@@ -176,7 +189,6 @@ async def get_zset_cache(
         return None
 
 
-# Same slice as get_zset_cache, including each member's score.
 async def get_zset_cache_with_scores(
     key: str,
     start: int = 0,
@@ -184,6 +196,7 @@ async def get_zset_cache_with_scores(
     *,
     reverse: bool = False,
 ) -> list[tuple[str, float]] | None:
+    """Same start and stop ranks as get_zset_cache, including each member's score."""
     try:
         return await redis_client.zrange(key, start, stop, desc=reverse, withscores=True)
     except Exception as e:
@@ -192,6 +205,7 @@ async def get_zset_cache_with_scores(
 
 
 async def count_zset_cache(key: str) -> int | None:
+    """How many members are in a sorted set."""
     try:
         return await redis_client.zcard(key)
     except Exception as e:
@@ -199,6 +213,7 @@ async def count_zset_cache(key: str) -> int | None:
         return None
 
 async def get_zset_score(key: str, member: Any) -> float | None:
+    """Score for member, or None when it is missing. member is one element of the sorted set."""
     try:
         return await redis_client.zscore(key, _member(member))
     except Exception as e:
@@ -206,10 +221,12 @@ async def get_zset_score(key: str, member: Any) -> float | None:
         return None
 
 def get_random_ttl_offset(offset: int = 600) -> int:
+    """Random jitter from -offset through offset - 1 seconds. offset is the size of that window."""
     return random.randint(0-offset, offset-1)
 
 
 async def mget_cache(keys: list[str]) -> list[str | None]:
+    """Values for these keys, in the same order. Missing keys are None."""
     return await redis_client.mget(keys)
 
 

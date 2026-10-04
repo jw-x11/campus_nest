@@ -7,9 +7,13 @@ from config.cache_config import *
 from schemas.spaces import SpaceItem, SpaceSearchQuery
 
 space_cache_key = "space:details:{id}"
+view_count_cache_key = "space:view_count:{id}"
+view_dirty_key = "space:view:dirty"
+# Must outlive the flush interval, or unflushed views expire with the key.
+VIEW_COUNT_TTL = 1 * DAY
 
-def _ttl() -> int:
-    return  1 * HOUR + get_random_ttl_offset(1000)
+def _ttl(base_ttl: int = 1 * HOUR) -> int:
+    return  base_ttl + get_random_ttl_offset(1000)
 
 CACHE_SPACES_COUNT = 500
 SPACE_SEARCH_CACHE_TTL = 300
@@ -21,10 +25,11 @@ async def get_space_cache(id: int) -> SpaceItem | None:
         return None
     return SpaceItem.model_validate(space_dict)
 
-async def set_space_cache(id: int, space: SpaceItem) -> bool:
+async def set_space_cache(id: int, space: SpaceItem, ttl: int = None) -> bool:
+    ttl = ttl if ttl is not None else _ttl()
     key = space_cache_key.format(id=id)
-    space_dict = space.model_dump(mode="json")
-    return await set_cache(key, space_dict, _ttl())
+    space_dict = space.model_dump(mode="json") if space is not None else None
+    return await set_cache(key, space_dict, ttl)
     
 
 async def delete_space_cache(id: int) -> bool:
@@ -97,3 +102,58 @@ async def mget_space_details(space_ids: list[int]) -> list[SpaceItem]:
 
 async def cache_space_search_results(key: str, ids: list[int]) -> list[SpaceItem]:
     await set_cache(key, ids, SPACE_SEARCH_CACHE_TTL + get_random_ttl_offset())
+
+
+async def delete_view_count_cache(space_id: int) -> bool:
+    key = view_count_cache_key.format(id=space_id)
+    return await delete_cache(key)
+
+async def get_view_count_cache(space_id: int) -> int | None:
+    key = view_count_cache_key.format(id=space_id)
+    count = await get_cache(key)
+    return int(count) if count is not None else None
+
+async def seed_view_count_cache(space_id: int, count: int) -> None:
+    """Start the counter from the stored total unless another request already created it."""
+    key = view_count_cache_key.format(id=space_id)
+    await set_cache(key, count, VIEW_COUNT_TTL, nx=True)
+
+async def increment_view_count_cache(space_id: int, by: int = 1) -> int | None:
+    """Add views, refresh the TTL, and mark the space for the next flush. Returns the new total."""
+    key = view_count_cache_key.format(id=space_id)
+    try:
+        async with redis_client.pipeline(transaction=True) as pipe:
+            pipe.incrby(key, by)
+            pipe.expire(key, VIEW_COUNT_TTL)
+            pipe.sadd(view_dirty_key, space_id)
+            total, _, _ = await pipe.execute()
+        return int(total)
+    except Exception as e:
+        print(f"Error incrementing view count cache: {e}")
+        return None
+
+async def pop_dirty_view_ids(limit: int) -> list[int]:
+    """Remove and return up to limit dirty space ids. Each id goes to exactly one caller."""
+    try:
+        ids = await redis_client.spop(view_dirty_key, limit)
+        return [int(space_id) for space_id in ids or []]
+    except Exception as e:
+        print(f"Error popping dirty view ids: {e}")
+        return []
+
+async def mark_view_counts_dirty(space_ids: list[int]) -> None:
+    """Put space ids back in the dirty set, for example after a failed flush."""
+    if not space_ids:
+        return
+    try:
+        await redis_client.sadd(view_dirty_key, *space_ids)
+    except Exception as e:
+        print(f"Error marking view counts dirty: {e}")
+
+async def mget_view_counts_cache(space_ids: list[int]) -> list[int | None]:
+    """Cached totals for these ids, in the same order. Expired counters are None."""
+    if not space_ids:
+        return []
+    keys = [view_count_cache_key.format(id=space_id) for space_id in space_ids]
+    values = await mget_cache(keys)
+    return [int(value) if value is not None else None for value in values]

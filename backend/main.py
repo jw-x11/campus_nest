@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -11,6 +12,7 @@ from routers.spaces import api_spaces
 from routers.bookings import api_bookings
 from routers.view_history import api_view_history
 from routers.saved_space import api_saved_space
+from utils.view_count_flush import flush_view_counts_now, run_view_count_flusher
 
 # TODO: Field validation (email, password, etc.)
 # TODO: Redis Cache
@@ -26,7 +28,13 @@ from routers.saved_space import api_saved_space
 async def lifespan(app: FastAPI):
     await db_config.connect()
     await s3db_config.connect()
+    view_flusher = asyncio.create_task(run_view_count_flusher())
     yield
+    view_flusher.cancel()
+    with suppress(asyncio.CancelledError):
+        await view_flusher
+    # Write views from the last interval before the database pool closes.
+    await flush_view_counts_now()
     await db_config.disconnect()
     await s3db_config.disconnect()
 
