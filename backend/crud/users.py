@@ -15,22 +15,26 @@ from utils.s3 import read_image
 from config.s3db_config import delete_s3_object_by_url, upload_bytes
 
 async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
+    """The user row for this username, or None."""
     query = select(User).where(User.username == username)
     result = await session.execute(query)
     return result.scalar_one_or_none()
 
 async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
+    """The user row for this email, or None."""
     query = select(User).where(User.email == email)
     result = await session.execute(query)
     return result.scalar_one_or_none()
 
 
 async def get_user_by_id(session: AsyncSession, user_id: UUID) -> User | None:
+    """The user row for this id, or None."""
     query = select(User).where(User.id == user_id)
     result = await session.execute(query)
     return result.scalar_one_or_none()
 
 async def get_user_info_by_id(session: AsyncSession, user_id: UUID) -> UserInfoResponse | None:
+    """Public profile for this id, from the user cache when present, otherwise loaded and cached."""
     # check cache
     cached = await get_user_cache(user_id)
     if cached is not None:
@@ -48,6 +52,7 @@ async def get_user_info_by_id(session: AsyncSession, user_id: UUID) -> UserInfoR
     return user_info
 
 async def get_user_by_token(session: AsyncSession, token: str) -> UserInfoResponse | None:
+    """Public profile for this session token."""
     user_id = await get_user_id_by_token(token)
     if not user_id:
         return None
@@ -56,8 +61,8 @@ async def get_user_by_token(session: AsyncSession, token: str) -> UserInfoRespon
         return None
     return user_info
 
-# only use by auth
 async def get_raw_user_by_token(session: AsyncSession, token: str) -> User | None:
+    """Full user row for this session token, including private columns. Used by auth."""
     user_id = await get_user_id_by_token(token)
 
     if not user_id:
@@ -68,6 +73,7 @@ async def get_raw_user_by_token(session: AsyncSession, token: str) -> User | Non
     return user
 
 async def create_user(session: AsyncSession, user_data: AuthRegisterRequest) -> User:
+    """Insert a user with a hashed password."""
     hashed_password = hash_password(user_data.password)
     user = User(
         email=user_data.email,
@@ -81,6 +87,7 @@ async def create_user(session: AsyncSession, user_data: AuthRegisterRequest) -> 
 
 
 async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRequest) -> User | None:
+    """Update profile fields and return the new public info. Email, avatar, and verification stay unchanged."""
     # Pydantic convert to dict then convert into sqlalchemy orm
     update_at = datetime.now(timezone.utc)
     query = update(User).where(User.email == email).values(
@@ -103,6 +110,7 @@ async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRe
 
 
 async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
+    """Blank the public profile and keep the row. Drops the user cache."""
     deleted_user_data = {
         "username": "Deleted User",
         "university": None,
@@ -121,6 +129,7 @@ async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
 
 
 async def upload_user_avatar(session: AsyncSession, user: User, file: UploadFile) -> User:
+    """Store a new avatar and delete the previous object after the row is updated."""
     body, content_type = await read_image(file)
     url = await upload_bytes(body, prefix=f"avatars/{user.id}", content_type=content_type)
     old_url = user.avatar_url
