@@ -14,16 +14,6 @@ from config.s3db_config import delete_s3_object_by_url, upload_bytes
 # Listings are auto-hidden one month after creation, and are renewable until then.
 LISTING_LIFETIME = timedelta(days=30)
 
-# TODO: Cache user owned space id, can use it to check ownership
-
-async def verify_space_ownership(db: AsyncSession, space_id: int, user_id: UUID) -> bool:
-    """True when this user owns the listing."""
-    stm = select(exists().where(Space.id == space_id, Space.owner_id == user_id))
-    result = await db.execute(stm)
-    return result.scalar()
-
-
-
 
 async def create_space(db: AsyncSession, body: SpaceInfoRequest, user_id: UUID):
     """Insert a listing for this owner. It expires after LISTING_LIFETIME."""
@@ -47,6 +37,7 @@ async def create_space(db: AsyncSession, body: SpaceInfoRequest, user_id: UUID):
     await db.refresh(space)
     await delete_space_cache(space.id)
     await delete_view_count_cache(space.id)
+    await delete_spaces_by_owner_cache(user_id)
     return space
 
 
@@ -137,23 +128,36 @@ async def set_space_active(db: AsyncSession, space_id: int) -> bool:
 
 
 
-
-async def get_all_spaces_by_owner(db: AsyncSession, owner_id: UUID, page: int, page_size: int) -> tuple[list[Space], int]:
-    """This owner's listings, newest update first, plus the total count."""
-
-    count_stm = select(func.count()).select_from(Space).where(Space.owner_id == owner_id)
-    count_result = await db.execute(count_stm)
-    total_count = count_result.scalar_one()
-
+async def get_all_spaces_by_owner(db: AsyncSession, owner_id: UUID, page: int, page_size: int) -> tuple[list[SpaceItem], int]:
+    """This owner's listings, newest update first, plus the total count. The id order is cached per owner."""
     offset = (page - 1) * page_size
-    stm = (
-        select(Space).where(Space.owner_id == owner_id)
-            .order_by(Space.updated_at.desc())
-            .offset(offset).limit(page_size)
-        )
 
+    space_ids = await get_spaces_by_owner_cache(owner_id)
+    if space_ids is None:
+        stm = (
+            select(Space.id)
+            .where(Space.owner_id == owner_id)
+            .order_by(Space.updated_at.desc(), Space.id.desc())
+        )
+        space_ids = list((await db.execute(stm)).scalars().all())
+        await set_spaces_by_owner_cache(owner_id, space_ids)
+
+    spaces = await hydrate_space_list(db, space_ids[offset:offset + page_size])
+    return spaces, len(space_ids)
+
+
+async def verify_space_ownership(db: AsyncSession, space_id: int, user_id: UUID) -> bool:
+    """True when this user owns the listing."""
+
+    if await is_space_owner(user_id, space_id):
+        return True
+
+    stm = select(exists().where(Space.id == space_id, Space.owner_id == user_id))
     result = await db.execute(stm)
-    return list[Space](result.scalars().all()), total_count
+
+    await get_spaces_by_owner_cache(user_id)
+    return result.scalar()
+
 
 
 CACHE_SPACES_COUNT = 500

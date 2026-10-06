@@ -1,5 +1,6 @@
 import hashlib
 import json
+from uuid import UUID
 
 from sqlalchemy.orm.base import PASSIVE_ONLY_PERSISTENT
 
@@ -9,6 +10,8 @@ from schemas.spaces import SpaceItem, SpaceSearchQuery
 space_cache_key = "space:details:{id}"
 view_count_cache_key = "space:view_count:{id}"
 view_dirty_key = "space:view:dirty"
+spaces_owner_key = "space:user:{user_id}"
+space_search_key = "space:search:{digest}"
 # Must outlive the flush interval, or unflushed views expire with the key.
 VIEW_COUNT_TTL = 1 * DAY
 
@@ -74,7 +77,7 @@ def space_search_cache_key(filters: SpaceSearchQuery) -> str:
     payload["sort_by"], payload["sort_order"] = _effective_sort(filters)
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    return f"space:search:{digest}"
+    return space_search_key.format(digest=digest)
 
 
 
@@ -122,7 +125,7 @@ async def increment_view_count_cache(space_id: int, by: int = 1) -> int | None:
     """Add views, refresh the TTL, and mark the space for the next flush. Returns the new total."""
     key = view_count_cache_key.format(id=space_id)
     try:
-        async with redis_client.pipeline(transaction=True) as pipe:
+        async with get_transaction_pipeline() as pipe:
             pipe.incrby(key, by)
             pipe.expire(key, VIEW_COUNT_TTL)
             pipe.sadd(view_dirty_key, space_id)
@@ -157,3 +160,21 @@ async def mget_view_counts_cache(space_ids: list[int]) -> list[int | None]:
     keys = [view_count_cache_key.format(id=space_id) for space_id in space_ids]
     values = await mget_cache(keys)
     return [int(value) if value is not None else None for value in values]
+
+
+async def get_spaces_by_owner_cache(owner_id: UUID) -> list[int] | None:
+    """This owner's listing ids, newest update first, or None when not cached."""
+    return await get_json_cache(spaces_owner_key.format(user_id=owner_id))
+
+async def set_spaces_by_owner_cache(owner_id: UUID, space_ids: list[int]) -> bool:
+    """Store this owner's listing ids in display order. An empty list is cached too."""
+    return await set_cache(spaces_owner_key.format(user_id=owner_id), space_ids, _ttl(3 * HOUR))
+
+async def delete_spaces_by_owner_cache(owner_id: UUID) -> bool:
+    """Drop the owner's id list after a listing is added or its updated_at changes."""
+    return await delete_cache(spaces_owner_key.format(user_id=owner_id))
+
+async def is_space_owner(owner_id: UUID, space_id: int) -> bool:
+    """Check if the owner has the space."""
+    owner_spaces = await get_spaces_by_owner_cache(owner_id)
+    return owner_spaces is not None and (space_id in owner_spaces)

@@ -52,6 +52,14 @@ async def to_space_items(db: AsyncSession, spaces: list) -> list[SpaceItem]:
     return [await to_space_item(space, urls_by_id.get(space.id, [])) for space in spaces]
     
 
+@api_spaces.get("/test-cache")
+async def test_cache(
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    res = await verify_space_ownership(db, 1, user.id)
+    return success_response(message="Cache tested", data=res)
+
 
 @api_spaces.get("/status")
 async def status(user: Annotated[UserInfoResponse, Depends(get_current_user_info)]):
@@ -113,6 +121,32 @@ async def get_my_spaces(
     )
     return success_response(message="Spaces found", data=space_list_response)
 
+
+@api_spaces.get("/from/{owner_id}")
+async def get_spaces_from_owner(
+    owner_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+):
+    space_list, space_count = await get_all_spaces_by_owner(db, owner_id, page, page_size)
+    has_more = space_count > page * page_size
+    total_pages = math.ceil(space_count / page_size) if page_size else 0
+
+    if not space_list:
+        return success_response(
+            message="No spaces found",
+            data=SpaceListResponse(total_count=0, spaces=[], has_more=False, total_pages=0),
+        )
+
+    space_list = await to_space_items(db, space_list)
+    space_list_response = SpaceListResponse(
+        total_count=space_count,
+        spaces=space_list,
+        has_more=has_more,
+        total_pages=total_pages,
+    )
+    return success_response(message="Spaces found", data=space_list_response)
 
 
 
@@ -230,3 +264,5 @@ async def post_space_images(
     
     urls = await upload_space_images(db, space_id, files)
     return success_response(message="Images uploaded", data={"images": urls})
+
+

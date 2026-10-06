@@ -6,6 +6,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 import redis.asyncio as redis
+from redis.asyncio.client import Pipeline
 
 load_dotenv()
 
@@ -228,6 +229,11 @@ def get_random_ttl_offset(offset: int = 600) -> int:
 async def mget_cache(keys: list[str]) -> list[str | None]:
     """Values for these keys, in the same order. Missing keys are None."""
     return await redis_client.mget(keys)
+
+
+def get_transaction_pipeline() -> Pipeline:
+    """MULTI/EXEC pipeline. Use with async with, queue commands, then await execute()."""
+    return redis_client.pipeline(transaction=True)
 
 
 
