@@ -439,6 +439,8 @@ Record that the caller viewed this listing.
 - **Logic**
   - `404 SPACE_NOT_FOUND` if the space does not exist.
   - `INSERT ... ON CONFLICT (user_id, space_id) DO UPDATE SET viewed_at = now()`.
+  - History is capped at the newest 500 rows per user. Inserting a new row deletes anything
+    older in the same transaction; a re-view does not change the count, so it skips the trim.
   - **Always** increment `spaces.view_count` (re-views count). Same transaction as the upsert.
   - Optional: skip increment if the last view was within N seconds (debounce refresh spam).
 - **Errors:** `401`, `404`.
@@ -447,20 +449,26 @@ Record that the caller viewed this listing.
 The caller's recently viewed list, newest first.
 
 - **Auth:** required
-- **Query:** `page`, `page_size` (same defaults as `/saved`).
+- **Query:** `cursor` (optional, opaque; omit for the first page), `page_size` (1–50, default 10).
 - **Response `200`**
 ```json
 {
-  "results": [ /* ViewHistoryItem[] */ ],
-  "total": 8,
-  "page": 1,
-  "page_size": 25
+  "total_count": 8,
+  "has_more": true,
+  "next_cursor": "MTc2NzI2ODgwMDEyMzQ1NjoxMDAwMDA3",
+  "history_list": [ /* ViewHistoryItem[] */ ]
 }
 ```
-- **Logic:** `view_history` for `user_id = caller`, join `spaces`, order by `viewed_at DESC`
-  (`idx_view_history_user_time`). Inactive listings: same choice as `/saved` (hide vs show
-  as unavailable).
-- **Errors:** `401`.
+- **Logic:** cursor (keyset) pagination ordered by `viewed_at DESC, space_id DESC`. The cursor
+  encodes the last item's `(viewed_at, space_id)`, so a re-view that moves an item to the top
+  never repeats or skips rows on later pages. Pass `next_cursor` back as `cursor`; it is `null`
+  on the last page.
+- **Cache:** Redis sorted set `history:ids:{user_id}` (member = zero-padded `space_id`, score =
+  `viewed_at` in epoch microseconds) plus `history:ready:{user_id}`. A miss loads the user's
+  newest 500 ids from `view_history` and fills the set; record/delete/clear update it in place,
+  and recording trims the set back to 500 by rank. Space details
+  are hydrated through the shared `space:details:{id}` cache.
+- **Errors:** `400` malformed cursor or `page_size` out of range, `401`.
 
 ### 5.3 `DELETE /history/{space_id}`
 Remove one listing from the caller's history.

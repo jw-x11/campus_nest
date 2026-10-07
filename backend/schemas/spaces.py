@@ -40,6 +40,8 @@ class SpaceItem(BaseModel):
     price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
     available_from: date
     available_to: date
+    # Defaulted so detail entries cached before this field existed still validate.
+    is_active: bool = True
 
     view_count: int
     images: list[str] = Field(default_factory=list)

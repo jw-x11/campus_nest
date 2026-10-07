@@ -17,4 +17,5 @@ class ViewHistoryListResponse(BaseModel):
 
     total_count: int
     has_more: bool
+    next_cursor: str | None = None
     history_list: list[ViewHistoryItem]

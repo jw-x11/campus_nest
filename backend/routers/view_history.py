@@ -27,17 +27,21 @@ async def status(user: Annotated[User, Depends(get_current_user)]):
     return success_response(message=f"Hello {user.username}", data=None)
 
 
-# The caller's recently viewed list, newest first.
+# The caller's recently viewed list, newest first. Pass next_cursor back as cursor for the next page.
 @api_view_history.get("/list")
 async def get_history_list(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1)] = 10,
+    cursor: Annotated[str | None, Query(max_length=64)] = None,
+    page_size: Annotated[int, Query(ge=1, le=50)] = 10,
 ):
-    history_list, total_count = await get_view_history_list(
-        db, user.id, page, page_size
-    )
+    try:
+        history_list, next_cursor, has_more, total_count = await get_view_history_list(
+            db, user.id, cursor, page_size
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid cursor")
+
     if total_count == 0:
         empty_response = ViewHistoryListResponse(
             history_list=[],
@@ -56,7 +60,8 @@ async def get_history_list(
     response = ViewHistoryListResponse(
         history_list=history_items,
         total_count=total_count,
-        has_more=page * page_size < total_count,
+        has_more=has_more,
+        next_cursor=next_cursor,
     )
 
     return success_response(message=f"{total_count} history items found", data=response)
@@ -83,6 +88,18 @@ async def add_history(
     return success_response(message="History added", data=result)
 
 
+# Clear the caller's entire history. Declared before /{space_id} so "clear" is not parsed as an id.
+@api_view_history.delete("/clear")
+async def clear_history(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    result = await clear_view_history(db, user.id)
+
+    message = f"{result} items deleted" if result > 0 else "History is empty"
+    return success_response(message=message, data=None)
+
+
 # Remove one listing from the caller's history.
 @api_view_history.delete("/{space_id}")
 async def delete_history(
@@ -99,15 +116,3 @@ async def delete_history(
     if not result:
         raise HTTPException(status_code=404, detail="History not found")
     return success_response(message="History deleted", data=None)
-
-
-# Clear the caller's entire history.
-@api_view_history.delete("/clear")
-async def clear_history(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
-):
-    result = await clear_view_history(db, user.id)
-
-    message = f"{result} items deleted" if result > 0 else "History is empty"
-    return success_response(message=message, data=None)
