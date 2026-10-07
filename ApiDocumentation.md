@@ -317,8 +317,7 @@ Upload photos (up to 10 per listing).
 ```json
 { "images": ["https://seaweedfs/.../1.jpg", "..."] }
 ```
-- **Logic:** verify ownership; upload each to SeaweedFS; insert rows into `space_images` with
-  incrementing `sort_order`. Enforce the 10-image cap → `400 IMAGE_LIMIT_REACHED`.
+- **Logic:** verify ownership; upload each original to SeaweedFS and a 400px long-edge thumbnail named `{orig_photo_uuid}-thumb.ext` in the same folder. Insert one `space_images` row per original (`url` only) with incrementing `sort_order`. List cards derive `thumbnail_url` by inserting `-thumb` before the extension. Enforce the 10-image cap → `400 IMAGE_LIMIT_REACHED`.
 - **Errors:** `400`, `403`, `404`.
 
 > **Phase 2 — Map view.** `GET /spaces/map?bbox=w,s,e,n&<filters>` returns GeoJSON of listings

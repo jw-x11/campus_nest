@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from config.db_config import get_db
-from crud.spaces import get_space_by_id
+from crud.spaces import get_space_by_id, list_space_thumbnail_urls
 from crud.view_history import (
     add_or_update_view_history,
     clear_view_history,
@@ -50,12 +50,12 @@ async def get_history_list(
         )
         return success_response(message="No history found", data=empty_response)
     
-    history_items = [
-        ViewHistoryItem(
-            space=SpaceItemReduced.model_validate(space), viewed_at=viewed_at
-        )
-        for space, viewed_at in history_list
-    ]
+    thumbs = await list_space_thumbnail_urls(db, [space.id for space, _ in history_list])
+    history_items = []
+    for space, viewed_at in history_list:
+        reduced = SpaceItemReduced.model_validate(space)
+        reduced.thumbnail_url = thumbs.get(space.id)
+        history_items.append(ViewHistoryItem(space=reduced, viewed_at=viewed_at))
 
     response = ViewHistoryListResponse(
         history_list=history_items,

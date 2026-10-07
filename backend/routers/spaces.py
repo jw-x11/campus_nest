@@ -16,7 +16,7 @@ from crud.spaces import (
     get_all_spaces_by_owner,
     get_space_by_id,
     get_space_list,
-    get_space_thumbnail_url,
+    list_space_thumbnail_urls,
     get_view_count,
     increase_view_count,
     list_space_image_urls,
@@ -80,13 +80,11 @@ async def get_space_list_by_query(
     if not space_list:
         return success_response(message="No spaces found", data=SpaceListReducedResponse(total_count=0, spaces=[], has_more=False, total_pages=0))
 
+    thumbs = await list_space_thumbnail_urls(db, [space.id for space in space_list])
     space_list_reduced = []
-    
     for space in space_list:
         space_reduced = SpaceItemReduced.model_validate(space)
-        img_url = await get_space_thumbnail_url(db, space.id)
-        if img_url:
-            space_reduced.thumbnail_url = img_url
+        space_reduced.thumbnail_url = thumbs.get(space.id)
         space_list_reduced.append(space_reduced)
         
     space_list_response = SpaceListReducedResponse(total_count=space_count, spaces=space_list_reduced, has_more=has_more, total_pages=total_pages)

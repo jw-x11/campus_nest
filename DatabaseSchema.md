@@ -145,7 +145,7 @@ Photos attached to a space listing, stored in SeaweedFS.
 | ------------ | ----------- | -------- | ------------------- | --------------------------------- |
 | `id`         | uuid        | NO       | `gen_random_uuid()` | Primary key                       |
 | `space_id`   | integer     | NO       | —                   | FK → `spaces.id` (cascade delete) |
-| `url`        | text        | NO       | —                   | SeaweedFS S3 URL                  |
+| `url`        | text        | NO       | —                   | SeaweedFS S3 URL of the original  |
 | `sort_order` | integer     | NO       | `0`                 | Display order                     |
 | `created_at` | timestamptz | NO       | `now()`             |                                   |
 
@@ -161,6 +161,8 @@ CREATE TABLE space_images (
 
 CREATE INDEX idx_space_images_space ON space_images (space_id, sort_order);
 ```
+
+> **Thumbnails:** not a column. On upload the backend also stores a 400px long-edge image beside the original. Its object name is the original filename plus `-thumb` before the extension (`3f2a9c1e-....jpg` and `3f2a9c1e-....-thumb.jpg`). List responses build `thumbnail_url` from `url` with that rule.
 
 ---
 

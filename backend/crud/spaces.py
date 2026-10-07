@@ -2,14 +2,15 @@ from typing import List
 from sqlalchemy import bindparam, select, update, exists, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, UploadFile
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime, timedelta, timezone
 
 from schemas.spaces import SpaceInfoRequest, SpaceSearchQuery
 from caches.space import *
 from models.spaces import Space, SpaceImage
+from utils.images import resize_long_edge
 from utils.s3 import read_image
-from config.s3db_config import delete_s3_object_by_url, upload_bytes
+from config.s3db_config import delete_s3_object_by_url, to_thumbnail_url, upload_bytes_with_name
 
 # Listings are auto-hidden one month after creation, and are renewable until then.
 LISTING_LIFETIME = timedelta(days=30)
@@ -357,37 +358,54 @@ async def list_space_image_urls_grouped(
         grouped.setdefault(row.space_id, []).append(row.url)
     return grouped
 
-async def get_space_thumbnail_url(db: AsyncSession, space_id: int) -> str | None:
-    """First image url for a space, used when showing a list of listings."""
-    stm = select(SpaceImage.url).where(SpaceImage.space_id == space_id, SpaceImage.sort_order == 0).limit(1)
-    result = await db.execute(stm)
-    return result.scalar_one_or_none()
-
+async def list_space_thumbnail_urls(db: AsyncSession, space_ids: list[int]) -> dict[int, str]:
+    """Cover image for each space, derived as {photo}-thumb.ext from the first original."""
+    if not space_ids:
+        return {}
+    stm = select(SpaceImage.space_id, SpaceImage.url).where(
+        SpaceImage.space_id.in_(space_ids), SpaceImage.sort_order == 0
+    )
+    return {
+        space_id: to_thumbnail_url(url)
+        for space_id, url in (await db.execute(stm)).all()
+        if url
+    }
 
 
 async def upload_space_images(
     db: AsyncSession, space_id: int, files: list[UploadFile]
 ) -> list[str]:
-    """Store uploaded images on S3 and save their urls. Uploads are deleted if the write fails."""
+    """Store each image and a 400px thumbnail on S3. Uploads are deleted if the write fails."""
+    stored_urls: list[str] = []
     uploaded_urls: list[str] = []
     try:
         sort_order = await next_sort_order(db, space_id)
-        # upload images to s3 and save url to database
         for file in files:
             body, content_type = await read_image(file)
-            url = await upload_bytes(
-                body, prefix=f"spaces/{space_id}", content_type=content_type
+            thumbnail_body, thumbnail_type = resize_long_edge(body, content_type)
+            photo_id = uuid4()
+            url = await upload_bytes_with_name(
+                body,
+                prefix=f"spaces/{space_id}",
+                content_type=content_type,
+                name=str(photo_id),
             )
             uploaded_urls.append(url)
-            space_img = SpaceImage(space_id=space_id, url=url, sort_order=sort_order)
-            db.add(space_img)
+            thumbnail_url = await upload_bytes_with_name(
+                thumbnail_body,
+                prefix=f"spaces/{space_id}",
+                content_type=thumbnail_type,
+                name=f"{photo_id}-thumb",
+            )
+            uploaded_urls.append(thumbnail_url)
+            db.add(SpaceImage(space_id=space_id, url=url, sort_order=sort_order))
+            stored_urls.append(url)
             sort_order += 1
         await db.commit()
 
     except Exception:
-        # delete all uploaded images from s3 if error occurs
         for url in uploaded_urls:
             await delete_s3_object_by_url(url)
         raise
 
-    return uploaded_urls
+    return stored_urls

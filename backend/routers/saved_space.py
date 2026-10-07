@@ -12,7 +12,7 @@ from crud.saved_space import (
 from crud.saved_space import (
     get_saved_list as fetch_saved_list,
 )
-from crud.spaces import get_space_by_id
+from crud.spaces import get_space_by_id, list_space_thumbnail_urls
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.users import User
 from schemas.saved_space import (
@@ -54,12 +54,12 @@ async def get_saved_list(
         )
         return success_response(message="No saved spaces found", data=empty_response)
 
-    saved_items = [
-        SavedSpaceItem(
-            space=SpaceItemReduced.model_validate(space), saved_at=saved_at
-        )
-        for space, saved_at in saved_list
-    ]
+    thumbs = await list_space_thumbnail_urls(db, [space.id for space, _ in saved_list])
+    saved_items = []
+    for space, saved_at in saved_list:
+        reduced = SpaceItemReduced.model_validate(space)
+        reduced.thumbnail_url = thumbs.get(space.id)
+        saved_items.append(SavedSpaceItem(space=reduced, saved_at=saved_at))
 
     response = SavedSpaceListResponse(
         saved_list=saved_items,

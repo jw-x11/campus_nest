@@ -53,6 +53,15 @@ def public_url(key: str) -> str:
     return f"{S3_PUBLIC_URL.rstrip('/')}/{key.lstrip('/')}"
 
 
+def to_thumbnail_url(url: str) -> str:
+    """Thumbnail stored beside this original as {name}-thumb.ext."""
+    stem, dot, ext = url.rpartition(".")
+    thumbnail_string = "-thumb"
+    if not dot:
+        return f"{url}{thumbnail_string}"
+    return f"{stem}{thumbnail_string}.{ext}"
+
+
 def _url_path(url: str) -> str:
     """Strip scheme and host so a full URL and a path can be compared the same way."""
     if "://" in url:
@@ -91,10 +100,11 @@ async def disconnect() -> None:
     return
 
 
-async def upload_bytes(body: bytes, *, prefix: str, content_type: str) -> str:
-    """Put image bytes under prefix/{uuid}.ext and return the public URL."""
+
+async def upload_bytes_with_name(body: bytes, *, prefix: str, content_type: str, name: str) -> str:
+    """Put image bytes under prefix/{name}.ext and return the public URL."""
     ext = EXT_BY_TYPE.get(content_type, "bin")
-    key = f"{prefix.rstrip('/')}/{uuid.uuid4()}.{ext}"
+    key = f"{prefix.rstrip('/')}/{name}.{ext}"
     async with s3_client() as s3:
         await s3.put_object(
             Bucket=S3_BUCKET,
@@ -103,6 +113,13 @@ async def upload_bytes(body: bytes, *, prefix: str, content_type: str) -> str:
             ContentType=content_type,
         )
     return public_url(key)
+
+
+async def upload_bytes(body: bytes, *, prefix: str, content_type: str) -> str:
+    """Put image bytes under prefix/{uuid}.ext and return the public URL."""
+    name = uuid.uuid4()
+    return await upload_bytes_with_name(body, prefix=prefix, content_type=content_type, name=name)
+
 
 
 async def delete_s3_object_by_url(url: str) -> None:
