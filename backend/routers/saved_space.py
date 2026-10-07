@@ -29,8 +29,6 @@ from utils.response import success_response
 
 api_saved_space = APIRouter()
 
-# TODO: Cache saved count and view count
-# TODO: Check if space exists and active for every function
 
 @api_saved_space.get("/status")
 async def status(user: Annotated[User, Depends(get_current_user)]):

@@ -14,13 +14,13 @@ from routers.view_history import api_view_history
 from routers.saved_space import api_saved_space
 from utils.view_count_flush import flush_view_counts_now, run_view_count_flusher
 
-# TODO: Field validation (email, password, etc.)
-# TODO: Redis Cache
+# TODO: Tests: Unit, line coverage
+# TODO: map location integration
 # TODO: SocketIO live message
 # TODO: Reviews and comments section
-# TODO: map location integration
 # TODO: Add logging and analytics
 # TODO: Rate Limiting
+# TODO: Tests: Integration, e2e
 # TODO: Stripe payment integration
 
 
