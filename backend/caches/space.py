@@ -20,6 +20,8 @@ def _ttl(base_ttl: int = 1 * HOUR) -> int:
 
 CACHE_SPACES_COUNT = 500
 SPACE_SEARCH_CACHE_TTL = 300
+# Must stay below SPACE_SEARCH_CACHE_TTL, or the TTL can reach zero and Redis rejects the write.
+SPACE_SEARCH_TTL_JITTER = 60
 
 async def get_space_cache(id: int) -> SpaceItem | None:
     key = space_cache_key.format(id=id)
@@ -104,7 +106,7 @@ async def mget_space_details(space_ids: list[int]) -> list[SpaceItem]:
 
 
 async def cache_space_search_results(key: str, ids: list[int]) -> list[SpaceItem]:
-    await set_cache(key, ids, SPACE_SEARCH_CACHE_TTL + get_random_ttl_offset())
+    await set_cache(key, ids, SPACE_SEARCH_CACHE_TTL + get_random_ttl_offset(SPACE_SEARCH_TTL_JITTER))
 
 
 async def delete_view_count_cache(space_id: int) -> bool:

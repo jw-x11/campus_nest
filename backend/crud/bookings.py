@@ -88,18 +88,18 @@ async def get_bookings_list(
 
 
 async def update_booking_details(
-    db: AsyncSession, request: BookingUpdateRequest
+    db: AsyncSession, booking_id: UUID, request: BookingUpdateRequest
 ) -> bool:
     stm = (
         update(Booking)
-        .where(Booking.id == request.booking_id)
+        .where(Booking.id == booking_id)
         .values(
             start_date=request.start_date,
             end_date=request.end_date,
         )
     )
-    await db.execute(stm)
-    result = await db.commit()
+    result = await db.execute(stm)
+    await db.commit()
     return result.rowcount != 0
 
 

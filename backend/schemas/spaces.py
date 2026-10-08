@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,7 +28,7 @@ class SpaceItem(BaseModel):
     # from_attributes: allow model_validate to work with ORM models
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
-    id: Annotated[int, Field(alias="space_id", ge=1)]
+    id: Annotated[int, Field(ge=1)]
     title: Annotated[str, Field(min_length=1, max_length=255)]
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
@@ -40,14 +40,20 @@ class SpaceItem(BaseModel):
     price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
     available_from: date
     available_to: date
-    # Defaulted so detail entries cached before this field existed still validate.
+    # Defaulted so detail entries cached before these fields existed still validate.
     is_active: bool = True
+    expired_at: datetime | None = None
 
     view_count: int
     images: list[str] = Field(default_factory=list)
 
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def is_listed(self) -> bool:
+        """Visible to the public: active and not past its expiry. An unknown expiry counts as listed."""
+        return self.is_active and (self.expired_at is None or self.expired_at > datetime.now(timezone.utc))
 
 
 
@@ -60,6 +66,10 @@ class SpaceItemReduced(BaseModel):
     price: Annotated[float, Field(ge=0)] = 0.0
     price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
     thumbnail_url: str | None = None
+    available_from: date
+    available_to: date
+    is_active: bool = True
+    expired_at: datetime | None = None
 
     view_count: int
     updated_at: datetime

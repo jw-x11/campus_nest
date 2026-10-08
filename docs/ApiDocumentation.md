@@ -320,6 +320,38 @@ Upload photos (up to 10 per listing).
 - **Logic:** verify ownership; upload each original to SeaweedFS and a 400px long-edge thumbnail named `{orig_photo_uuid}-thumb.ext` in the same folder. Insert one `space_images` row per original (`url` only) with incrementing `sort_order`. List cards derive `thumbnail_url` by inserting `-thumb` before the extension. Enforce the 10-image cap → `400 IMAGE_LIMIT_REACHED`.
 - **Errors:** `400`, `403`, `404`.
 
+### 3.7 `GET /spaces/me`
+The caller's own listings, for managing them.
+
+- **Auth:** required
+- **Query params:** `page` (default 1), `page_size` (default 25, cap 100)
+- **Response `200`:** `SpaceListReducedResponse`
+```json
+{
+  "total_count": 3, "has_more": true, "total_pages": 2,
+  "spaces": [{
+    "id": 1, "title": "...", "city": "Springfield", "price": 60.00,
+    "price_type": "recurring_per_month", "thumbnail_url": "https://seaweedfs/.../1-thumb.jpg",
+    "available_from": "2026-06-01", "available_to": "2026-08-15",
+    "is_active": true, "expired_at": "2026-07-22T00:00:00Z",
+    "view_count": 142, "updated_at": "2026-06-22T00:00:00Z"
+  }]
+}
+```
+- **Logic:** includes hidden (`is_active = false`) and expired listings so the owner can see
+  what to renew; `is_active` and `expired_at` say which is which. Most recently updated first.
+
+### 3.8 `GET /spaces/from/{owner_id}`
+One owner's public listings.
+
+- **Auth:** none
+- **Query params:** `page` (default 1), `page_size` (default 25, cap 100)
+- **Response `200`:** `SpaceListReducedResponse` (same item shape as §3.7)
+- **Logic:** only `is_active = true` AND `expired_at > now()`; `total_count` and `total_pages`
+  count only those. The owner's id list is cached and cleared whenever one of their listings
+  is created, updated, hidden, re-activated, or renewed.
+- **Errors:** `400` invalid UUID.
+
 > **Phase 2 — Map view.** `GET /spaces/map?bbox=w,s,e,n&<filters>` returns GeoJSON of listings
 > within the bounding box + a true total count, capped at ~200–300 markers with fuzzed
 > coordinates. Cache under a rounded-bounds key (short TTL). Ships with the Zillow-style map
@@ -619,7 +651,7 @@ Cancel a booking.
 }
 ```
 
-* Logic: Update booking dates for renter
+* Logic: Update booking dates for renter. The body's `booking_id` must match the path, otherwise `400`. Allowed while `pending` or `accepted`; an `accepted` booking goes back to `pending`.
 
 * **Response**: Booking details
 

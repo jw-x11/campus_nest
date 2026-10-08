@@ -258,7 +258,7 @@ export function getSpace(id) {
 }
 
 export async function listMySpaces(page = 1, pageSize = 25) {
-  const data = await api('/spaces/mine', {
+  const data = await api('/spaces/me', {
     auth: true,
     query: { page, page_size: pageSize },
   });

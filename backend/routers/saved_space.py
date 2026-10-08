@@ -70,6 +70,16 @@ async def get_saved_list(
     return success_response(message=f"{total_count} saved spaces found", data=response)
 
 
+# Declared before /{space_id}, or "count" is parsed as a space id.
+@api_saved_space.get("/count")
+async def get_post_saved_count(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    space_id: int,
+):
+    count = await get_saved_count(db, space_id)
+    return success_response(message="OK", data=count)
+
+
 # Save this listing to the caller's saved list.
 @api_saved_space.post("/{space_id}")
 async def save_space(
@@ -121,12 +131,3 @@ async def get_saved_status(
     saved = await is_space_saved(db, user.id, space_id)
     response = SavedStatusResponse(space_id=space_id, saved=saved)
     return success_response(message="Saved status retrieved", data=response)
-
-
-@api_saved_space.get("/count")
-async def get_post_saved_count(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    space_id: int,
-):
-    count = await get_saved_count(db, space_id)
-    return success_response(message="OK", data=count)

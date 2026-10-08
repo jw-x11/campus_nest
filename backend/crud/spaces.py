@@ -67,70 +67,74 @@ async def get_space_by_id(db: AsyncSession, space_id: int) -> SpaceItem | None:
     return space_item
 
 
+async def get_space_record(db: AsyncSession, space_id: int) -> Space | None:
+    """The listing row from the database, including owner_id. Skips the detail cache, so prices are current."""
+    return await db.get(Space, space_id)
+
+
+
+async def _update_space(db: AsyncSession, space_id: int, stm) -> bool:
+    """Run an UPDATE on one listing, then drop its detail cache and its owner's list cache. False when no row matched."""
+    owner_id = (await db.execute(stm.returning(Space.owner_id))).scalar_one_or_none()
+    await db.commit()
+    if owner_id is None:
+        return False
+    await delete_space_cache(space_id)
+    await delete_spaces_by_owner_cache(owner_id)
+    return True
+
 
 async def update_space_expired_at(db: AsyncSession, space_id: int) -> bool:
-    """Renew a listing for another LISTING_LIFETIME and drop its detail cache."""
+    """Renew a listing for another LISTING_LIFETIME."""
     expired_at = datetime.now(timezone.utc) + LISTING_LIFETIME
     stm = update(Space).where(Space.id == space_id).values(expired_at=expired_at)
-
-    result = await db.execute(stm)
-    await db.commit()
-    if result.rowcount > 0:
-        await delete_space_cache(space_id)
-    return result.rowcount > 0
+    return await _update_space(db, space_id, stm)
 
 
 
-async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: int) -> Space | None:
+async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: int) -> SpaceItem | None:
     """Replace listing fields, renew the expiry, and return the updated listing."""
-    update_at = datetime.now(timezone.utc)
-    expired_at = datetime.now(timezone.utc) + LISTING_LIFETIME
-
+    now = datetime.now(timezone.utc)
     stm = update(Space).where(Space.id == space_id).values(
         **req.model_dump(exclude_unset=True, exclude_none=True),
-        updated_at=update_at,
-        expired_at=expired_at)
+        updated_at=now,
+        expired_at=now + LISTING_LIFETIME)
 
-    result = await db.execute(stm)
-    await db.commit()
-    if result.rowcount == 0:
+    if not await _update_space(db, space_id, stm):
         return None
-
-    await delete_space_cache(space_id)
-    updated_space = await get_space_by_id(db, space_id)
-    return updated_space
+    return await get_space_by_id(db, space_id)
 
 
 async def set_space_inactive(db: AsyncSession, space_id: int) -> bool:
-    """Hide a listing that is currently active and drop its detail cache."""
-
+    """Hide a listing that is currently active."""
     stm = (
         update(Space)
         .where(Space.id == space_id, Space.is_active.is_(True))
         .values(is_active=False, updated_at=datetime.now(timezone.utc))
     )
-    result = await db.execute(stm)
-    await db.commit()
-    if result.rowcount > 0:
-        await delete_space_cache(space_id)
-    return result.rowcount > 0
+    return await _update_space(db, space_id, stm)
 
 
 
 
 async def set_space_active(db: AsyncSession, space_id: int) -> bool:
-    """Show a hidden listing again and drop its detail cache."""
-    stm = update(Space).where(Space.id == space_id, Space.is_active.is_(False)).values(is_active=True, updated_at=datetime.now(timezone.utc))
-    result = await db.execute(stm)
-    await db.commit()
-    if result.rowcount > 0:
-        await delete_space_cache(space_id)
-    return result.rowcount > 0
+    """Show a hidden listing again."""
+    stm = (
+        update(Space)
+        .where(Space.id == space_id, Space.is_active.is_(False))
+        .values(is_active=True, updated_at=datetime.now(timezone.utc))
+    )
+    return await _update_space(db, space_id, stm)
 
 
 
-async def get_all_spaces_by_owner(db: AsyncSession, owner_id: UUID, page: int, page_size: int) -> tuple[list[SpaceItem], int]:
-    """This owner's listings, newest update first, plus the total count. The id order is cached per owner."""
+async def get_all_spaces_by_owner(
+    db: AsyncSession, owner_id: UUID, page: int, page_size: int, *, listed_only: bool = False
+) -> tuple[list[SpaceItem], int]:
+    """
+    This owner's listings, newest update first, plus the total count. The id order is cached per owner.\n
+    listed_only=True keeps only active, unexpired listings, and the count covers just those.
+    """
     offset = (page - 1) * page_size
 
     space_ids = await get_spaces_by_owner_cache(owner_id)
@@ -143,8 +147,13 @@ async def get_all_spaces_by_owner(db: AsyncSession, owner_id: UUID, page: int, p
         space_ids = list((await db.execute(stm)).scalars().all())
         await set_spaces_by_owner_cache(owner_id, space_ids)
 
-    spaces = await hydrate_space_list(db, space_ids[offset:offset + page_size])
-    return spaces, len(space_ids)
+    if not listed_only:
+        spaces = await hydrate_space_list(db, space_ids[offset:offset + page_size])
+        return spaces, len(space_ids)
+
+    # Expiry is time-based, so it cannot be cached in the id list; filter the hydrated details instead.
+    listed = [space for space in await hydrate_space_list(db, space_ids) if space.is_listed]
+    return listed[offset:offset + page_size], len(listed)
 
 
 async def verify_space_ownership(db: AsyncSession, space_id: int, user_id: UUID) -> bool:
@@ -335,28 +344,6 @@ async def list_space_image_urls(db: AsyncSession, space_id: int) -> list[str]:
         .order_by(SpaceImage.sort_order.asc(), SpaceImage.created_at.asc())
     )
     return list((await db.execute(stm)).scalars().all())
-
-async def list_space_image_urls_grouped(
-    db: AsyncSession, space_ids: list[int]
-) -> dict[int, list[str]]:
-    """Image urls for each of these spaces."""
-    grouped: dict[int, list[str]] = {space_id: [] for space_id in space_ids}
-    if not space_ids:
-        return grouped
-
-    stm = (
-        select(SpaceImage)
-        .where(SpaceImage.space_id.in_(space_ids))
-        .distinct(SpaceImage.space_id)
-        .order_by(
-            SpaceImage.space_id,
-            SpaceImage.sort_order.asc(),
-            SpaceImage.created_at.asc(),
-        )
-    )
-    for row in (await db.execute(stm)).scalars().all():
-        grouped.setdefault(row.space_id, []).append(row.url)
-    return grouped
 
 async def list_space_thumbnail_urls(db: AsyncSession, space_ids: list[int]) -> dict[int, str]:
     """Cover image for each space, derived as {photo}-thumb.ext from the first original."""

@@ -8,7 +8,7 @@ from schemas.users import UserInfoResponse
 from utils.deps import get_current_user, get_current_user_info
 from models.users import User
 from config.db_config import get_db
-from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceItemReduced, SpaceListReducedResponse, SpaceListResponse, SpaceSearchQuery
+from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceItemReduced, SpaceListReducedResponse, SpaceSearchQuery
 from utils.response import success_response
 from crud.spaces import (
     count_space_images,
@@ -20,7 +20,6 @@ from crud.spaces import (
     get_view_count,
     increase_view_count,
     list_space_image_urls,
-    list_space_image_urls_grouped,
     set_space_inactive,
     update_space_expired_at,
     update_space_info,
@@ -46,10 +45,24 @@ async def to_space_item(space, image_urls: list[str] | None = None) -> SpaceItem
         item.images = image_urls
     return item
 
-# Add image urls to space items
-async def to_space_items(db: AsyncSession, spaces: list) -> list[SpaceItem]:
-    urls_by_id = await list_space_image_urls_grouped(db, [space.id for space in spaces])
-    return [await to_space_item(space, urls_by_id.get(space.id, [])) for space in spaces]
+# Reduce space items for list views, with each cover thumbnail
+async def to_reduced_items(db: AsyncSession, spaces: list[SpaceItem]) -> list[SpaceItemReduced]:
+    thumbs = await list_space_thumbnail_urls(db, [space.id for space in spaces])
+    reduced_items = []
+    for space in spaces:
+        reduced = SpaceItemReduced.model_validate(space)
+        reduced.thumbnail_url = thumbs.get(space.id)
+        reduced_items.append(reduced)
+    return reduced_items
+
+
+def reduced_list_response(spaces: list[SpaceItemReduced], total_count: int, page: int, page_size: int) -> SpaceListReducedResponse:
+    return SpaceListReducedResponse(
+        total_count=total_count,
+        spaces=spaces,
+        has_more=total_count > page * page_size,
+        total_pages=math.ceil(total_count / page_size),
+    )
     
 
 @api_spaces.get("/test-cache")
@@ -74,25 +87,17 @@ async def get_space_list_by_query(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     space_list, space_count = await get_space_list(db, filters)
-    has_more = space_count > filters.page * filters.page_size
-    total_pages = math.ceil(space_count / filters.page_size)
 
     if not space_list:
         return success_response(message="No spaces found", data=SpaceListReducedResponse(total_count=0, spaces=[], has_more=False, total_pages=0))
 
-    thumbs = await list_space_thumbnail_urls(db, [space.id for space in space_list])
-    space_list_reduced = []
-    for space in space_list:
-        space_reduced = SpaceItemReduced.model_validate(space)
-        space_reduced.thumbnail_url = thumbs.get(space.id)
-        space_list_reduced.append(space_reduced)
-        
-    space_list_response = SpaceListReducedResponse(total_count=space_count, spaces=space_list_reduced, has_more=has_more, total_pages=total_pages)
-    return success_response(message="Spaces found", data=space_list_response)
+    spaces = await to_reduced_items(db, space_list)
+    return success_response(message="Spaces found",
+                            data=reduced_list_response(spaces, space_count, filters.page, filters.page_size))
 
 
 
-
+# Every listing the caller owns, including hidden and expired ones, so they can be renewed.
 @api_spaces.get("/me")
 async def get_my_spaces(
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
@@ -101,25 +106,16 @@ async def get_my_spaces(
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ):
     space_list, space_count = await get_all_spaces_by_owner(db, user.id, page, page_size)
-    has_more = space_count > page * page_size
-    total_pages = math.ceil(space_count / page_size) if page_size else 0
 
     if not space_list:
-        return success_response(
-            message="No spaces found",
-            data=SpaceListResponse(total_count=0, spaces=[], has_more=False, total_pages=0),
-        )
+        return success_response(message="No spaces found",
+                                data=SpaceListReducedResponse(total_count=0, spaces=[], has_more=False, total_pages=0))
 
-    space_list = await to_space_items(db, space_list)
-    space_list_response = SpaceListResponse(
-        total_count=space_count,
-        spaces=space_list,
-        has_more=has_more,
-        total_pages=total_pages,
-    )
-    return success_response(message="Spaces found", data=space_list_response)
+    spaces = await to_reduced_items(db, space_list)
+    return success_response(message="Spaces found", data=reduced_list_response(spaces, space_count, page, page_size))
 
 
+# Public view of an owner's listings: only active, unexpired ones.
 @api_spaces.get("/from/{owner_id}")
 async def get_spaces_from_owner(
     owner_id: UUID,
@@ -127,24 +123,14 @@ async def get_spaces_from_owner(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ):
-    space_list, space_count = await get_all_spaces_by_owner(db, owner_id, page, page_size)
-    has_more = space_count > page * page_size
-    total_pages = math.ceil(space_count / page_size) if page_size else 0
+    space_list, space_count = await get_all_spaces_by_owner(db, owner_id, page, page_size, listed_only=True)
 
     if not space_list:
-        return success_response(
-            message="No spaces found",
-            data=SpaceListResponse(total_count=0, spaces=[], has_more=False, total_pages=0),
-        )
+        return success_response(message="No spaces found",
+                                data=SpaceListReducedResponse(total_count=0, spaces=[], has_more=False, total_pages=0))
 
-    space_list = await to_space_items(db, space_list)
-    space_list_response = SpaceListResponse(
-        total_count=space_count,
-        spaces=space_list,
-        has_more=has_more,
-        total_pages=total_pages,
-    )
-    return success_response(message="Spaces found", data=space_list_response)
+    spaces = await to_reduced_items(db, space_list)
+    return success_response(message="Spaces found", data=reduced_list_response(spaces, space_count, page, page_size))
 
 
 

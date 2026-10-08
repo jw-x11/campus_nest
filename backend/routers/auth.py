@@ -63,8 +63,7 @@ async def login(request: AuthLoginRequest, db: AsyncSession = Depends(get_db)):
 
 @api_auth.post("/logout")
 async def logout(user : User = Depends(user_dep.get_current_user), authorization: str = Header(...)):
-    token = authorization.split(" ")[1]
-    await revoke_token(token)
+    await revoke_token(user_dep.get_bearer_token(authorization))
     return success_response(message=f"User {user.username} logged out successfully", data=None)
 
 
@@ -79,5 +78,5 @@ async def reset_password(request: ChangePasswordRequest, db: AsyncSession = Depe
     result = await change_password(db, user, request.new_password)
     if not result:
         raise HTTPException(status_code=400, detail="Failed to reset password")
-    await revoke_token(authorization.split(" ")[1])
+    await revoke_token(user_dep.get_bearer_token(authorization))
     return success_response(message="Password reset successful", data=None)

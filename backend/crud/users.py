@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from uuid import UUID
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +42,6 @@ async def get_user_info_by_id(session: AsyncSession, user_id: UUID) -> UserInfoR
     # if not in cache, get from database
     user = await get_user_by_id(session, user_id)
     if user is None:
-        await set_user_cache(user_id, None, 180)
         return None
     user_info = UserInfoResponse.model_validate(user)
 
@@ -88,15 +86,13 @@ async def create_user(session: AsyncSession, user_data: AuthRegisterRequest) -> 
 
 async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRequest) -> User | None:
     """Update profile fields and return the new public info. Email, avatar, and verification stay unchanged."""
-    # Pydantic convert to dict then convert into sqlalchemy orm
-    update_at = datetime.now(timezone.utc)
     query = update(User).where(User.email == email).values(
         **user_data.model_dump(
             exclude_unset=True,
             exclude_none=True,
             exclude={"id", "email", "avatar_url", "is_verified"},
         ),
-        updated_at=update_at,
+        updated_at=func.now(),
     )
     result = await session.execute(query)
     await session.commit()
@@ -104,8 +100,8 @@ async def update_user(session: AsyncSession, email: str, user_data: UserUpdateRe
     if result.rowcount == 0:
         return None
 
-    await delete_user_cache(User.id)
     updated_user = await get_user_by_email(session, email)
+    await delete_user_cache(updated_user.id)
     return UserInfoResponse.model_validate(updated_user)
 
 
@@ -117,7 +113,7 @@ async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
         "description": None,
         "avatar_url": None,
         "is_verified": False,
-        "updated_at": datetime.now(timezone.utc),
+        "updated_at": func.now(),
     }
     query = update(User).where(User.id == user_id).values(**deleted_user_data)
     result = await session.execute(query)
@@ -145,6 +141,7 @@ async def upload_user_avatar(session: AsyncSession, user: User, file: UploadFile
         await delete_s3_object_by_url(url)
         raise
 
+    await delete_user_cache(user.id)
     if old_url and old_url != url:
         await delete_s3_object_by_url(old_url)
 

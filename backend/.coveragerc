@@ -1,0 +1,11 @@
+[run]
+source = .
+omit =
+    tests/*
+    venv/*
+# SQLAlchemy's async layer runs ORM code inside greenlets.
+concurrency = thread,greenlet
+
+[report]
+skip_empty = true
+show_missing = true

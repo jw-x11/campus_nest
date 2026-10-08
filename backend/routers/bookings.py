@@ -6,6 +6,7 @@ from config.db_config import get_db
 from crud.bookings import (
     check_overlapping_booking,
     create_pending_booking,
+    get_booking_by_id,
     get_bookings_list,
     request_cancellation,
     set_booking_status,
@@ -15,7 +16,7 @@ from crud.bookings import (
     verify_booking_owner_or_renter,
     verify_booking_renter,
 )
-from crud.spaces import get_space_by_id
+from crud.spaces import get_space_record
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.users import User
 from schemas.bookings import (
@@ -52,7 +53,7 @@ async def create_booking(
         raise HTTPException(status_code=400, detail="Start date must be before end date")
 
     # check if space exists and is active
-    space = await get_space_by_id(db, request.space_id)
+    space = await get_space_record(db, request.space_id)
     if space is None:
         raise HTTPException(status_code=404, detail="Space not found")
     if space.is_active is False:
@@ -94,7 +95,7 @@ async def get_my_bookings(
 
 
 @api_bookings.get("/details/{booking_id}")
-async def get_booking_by_id(
+async def get_booking_details(
     booking_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
@@ -114,6 +115,9 @@ async def update_booking(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
+    if body.booking_id != booking_id:
+        raise HTTPException(status_code=400, detail="Booking id in the body does not match the URL")
+
     # verify caller is renter
     if not await verify_booking_renter(db, user.id, booking_id):
         raise HTTPException(status_code=403, detail="Not Authorized to update this booking")
@@ -133,13 +137,11 @@ async def update_booking(
     
     # mark as pending
     if booking.status == "accepted":
-        result = await set_booking_status(db, user.id, booking_id, "pending")
-    if not result:
-        raise HTTPException(status_code=500, detail="Failed to update booking")
-
+        if not await set_booking_status(db, booking_id, "pending"):
+            raise HTTPException(status_code=500, detail="Failed to update booking")
 
     # update booking details
-    result = await update_booking_details(db, user.id, body)
+    result = await update_booking_details(db, booking_id, body)
     if not result:
         raise HTTPException(status_code=500, detail="Failed to update booking")
     return success_response(message="Booking updated successfully", data=None)
@@ -163,7 +165,7 @@ async def cancel_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
 
     if booking.status in ["pending", "accepted"]:
-        result = await set_booking_status(db, user.id, body.booking_id, "cancelled")
+        result = await set_booking_status(db, body.booking_id, "cancelled")
         if not result:
             raise HTTPException(status_code=500, detail="Failed to cancel booking")
         
@@ -204,7 +206,7 @@ async def accept_booking(
     if booking.status != "pending":
         raise HTTPException(status_code=400, detail="Booking is not pending")
 
-    result = await set_booking_status(db, user.id, body.booking_id, "accepted")
+    result = await set_booking_status(db, body.booking_id, "accepted")
     if not result:
         raise HTTPException(status_code=500, detail="Failed to accept booking")
     
@@ -232,7 +234,7 @@ async def decline_booking(
         raise HTTPException(status_code=400, detail="Booking is not pending")
 
 
-    result = await set_booking_status(db, user.id, body.booking_id, "declined")
+    result = await set_booking_status(db, body.booking_id, "declined")
     if not result:
         raise HTTPException(status_code=500, detail="Failed to decline booking")
     
