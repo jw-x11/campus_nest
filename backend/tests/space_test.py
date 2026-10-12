@@ -29,12 +29,13 @@ class TestCreate:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert set(data) == {
-            "id", "title", "description", "address", "city", "postal_code", "latitude", "longitude",
+            "id", "owner_id", "title", "description", "address", "city", "postal_code", "latitude", "longitude",
             "price", "price_type", "available_from", "available_to", "is_active", "not_accepting", "expired_at",
             "view_count", "images", "created_at", "updated_at",
         }
         assert data["not_accepting"] is False
         assert data["id"] >= 1
+        assert data["owner_id"] == owner.id
         assert data["title"] == "Attic"
         assert data["is_active"] is True
         assert data["view_count"] == 0
@@ -67,11 +68,13 @@ class TestCreate:
 
 class TestDetail:
     async def test_returns_listing_and_counts_views(self, client, register, create_space):
-        space = await create_space(await register(), title="Basement shelf")
+        owner = await register()
+        space = await create_space(owner, title="Basement shelf")
         first = await client.get(f"/api/spaces/{space['id']}")
         second = await client.get(f"/api/spaces/{space['id']}")
         assert first.status_code == 200
         assert first.json()["data"]["title"] == "Basement shelf"
+        assert first.json()["data"]["owner_id"] == owner.id
         assert first.json()["data"]["view_count"] == 1
         assert second.json()["data"]["view_count"] == 2
 

@@ -63,15 +63,35 @@ function buildUrl(path, query) {
   return `${API_BASE}${path}${suffix ? `?${suffix}` : ''}`;
 }
 
-export async function api(path, { method = 'GET', body, query, auth = false } = {}) {
+// In-flight GETs, keyed by method + URL + auth state. Simultaneous identical
+// reads share one network request.
+const inflightGets = new Map();
+
+export async function api(path, { method = 'GET', body, query, auth = false } = {}) {  const token = getAuthToken();
+  if (auth && !token) throw new ApiError('Please log in', 401);
+
+  const url = buildUrl(path, query);
+  // Dedupe simultaneous identical GETs (StrictMode double-effects in dev,
+  // plus overlapping context/page fetches). One network request, shared result.
+  const key = method === 'GET' ? `GET ${url} ${token ? 'auth' : 'anon'}` : null;
+  if (key) {
+    const inflight = inflightGets.get(key);
+    if (inflight) return inflight;
+    const promise = doFetch(url, method, body, token).finally(() => {
+      if (inflightGets.get(key) === promise) inflightGets.delete(key);
+    });
+    inflightGets.set(key, promise);
+    return promise;
+  }
+  return doFetch(url, method, body, token);
+}
+
+async function doFetch(url, method, body, token) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-
-  const token = getAuthToken();
-  if (auth && !token) throw new ApiError('Please log in', 401);
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(buildUrl(path, query), {
+  const res = await fetch(url, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -279,6 +299,10 @@ export function getMe() {
   return api('/users/me', { auth: true }).then(mapUser);
 }
 
+export function getUserProfile(id) {
+  return api(`/users/${id}`).then(mapUser);
+}
+
 export function updateMe(body) {
   return api('/users/me', { method: 'PUT', auth: true, body }).then(mapUser);
 }
@@ -329,6 +353,7 @@ export async function listMySpaces(page = 1, pageSize = 25) {
   });
   return {
     total: data?.total_count ?? 0,
+    totalPages: data?.total_pages ?? 0,
     hasMore: Boolean(data?.has_more),
     spaces: (data?.spaces ?? []).map(mapSpace),
   };
@@ -338,6 +363,7 @@ export async function listOwnerSpaces(ownerId, page = 1, pageSize = 25) {
   const data = await api(`/spaces/from/${ownerId}`, { query: { page, page_size: pageSize } });
   return {
     total: data?.total_count ?? 0,
+    totalPages: data?.total_pages ?? 0,
     hasMore: Boolean(data?.has_more),
     spaces: (data?.spaces ?? []).map(mapSpace),
   };

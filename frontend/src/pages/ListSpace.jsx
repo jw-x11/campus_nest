@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Field, LoadingState, ErrorState } from '../components/ui.jsx';
 import { XIcon } from '../components/icons.jsx';
 import { formPriceTypes } from '../data.js';
+import { closeTabOr } from '../utils.js';
 import { createSpace, getSpace, updateSpace, uploadSpaceImages } from '../api.js';
 
 const MAX_IMAGES = 10;
@@ -74,6 +75,19 @@ export default function ListSpace() {
   const [error, setError] = useState('');
   const [savedId, setSavedId] = useState(null);
   const patch = (p) => setForm((f) => ({ ...f, ...p }));
+
+  const goCancel = () => {
+    if (isEdit) {
+      // Back to wherever the user came from (usually Profile);
+      // fall back to the listing when there is no history (direct URL).
+      if (window.history.length > 1) navigate(-1);
+      else navigate(`/space/${editId}`, { replace: true });
+    } else {
+      // The create form lives in its own tab: close it, or go home
+      // in-tab when the browser refuses to close.
+      closeTabOr(() => navigate('/'));
+    }
+  };
 
   useEffect(() => {
     if (!isEdit) return;
@@ -151,7 +165,9 @@ export default function ListSpace() {
           return;
         }
       }
-      navigate(`/space/${space.id}`);
+      // Replace the form entry so Back skips it (profile → edit → detail
+      // becomes profile → detail instead of looping back into the form).
+      navigate(`/space/${space.id}`, { replace: true });
     } catch (err) {
       setError(err.message || (isEdit ? 'Could not save changes.' : 'Could not publish listing.'));
     } finally {
@@ -185,7 +201,7 @@ export default function ListSpace() {
               {isEdit ? 'Changes go live immediately.' : 'Free to list. You approve every booking.'}
             </p>
           </div>
-          <Link to={isEdit ? `/space/${editId}` : '/'} className="text-sm text-stone-400 hover:text-stone-700">Cancel</Link>
+          <button type="button" onClick={goCancel} className="text-sm text-stone-400 hover:text-stone-700">Cancel</button>
         </div>
 
         <form onSubmit={submit} className="mt-7 flex flex-col gap-5">
@@ -249,9 +265,9 @@ export default function ListSpace() {
           {error && <p className="text-sm text-red-700">{error}</p>}
 
           <div className="flex justify-end gap-2">
-            <Link to={isEdit ? `/space/${editId}` : '/'} className="btn">Cancel</Link>
+            <button type="button" onClick={goCancel} className="btn">Cancel</button>
             {savedId ? (
-              <button className="btn btn-primary" type="button" onClick={() => navigate(`/space/${savedId}`)}>
+              <button className="btn btn-primary" type="button" onClick={() => navigate(`/space/${savedId}`, { replace: true })}>
                 View listing →
               </button>
             ) : (

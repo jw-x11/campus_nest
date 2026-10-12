@@ -53,9 +53,9 @@ export default function Nav() {
               Log in
             </Link>
           )}
-          <Link to="/list" className="btn btn-sm btn-primary ml-2 hidden sm:inline-flex">
+          <a href="/list" target="_blank" rel="noreferrer" className="btn btn-sm btn-primary ml-2 hidden sm:inline-flex">
             List a space
-          </Link>
+          </a>
         </div>
       </div>
     </nav>

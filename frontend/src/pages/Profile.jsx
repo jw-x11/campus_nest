@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Avatar, Field, ConfirmDialog, EmptyState, LoadingState, ErrorState } from '../components/ui.jsx';
+import { Avatar, Field, ConfirmDialog, EmptyState, LoadingState, ErrorState, Pagination } from '../components/ui.jsx';
 import { Photo } from '../components/cards.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import {
@@ -133,12 +133,20 @@ export default function Profile() {
   const [form, setForm] = useState({ username: '', phone: '', university: '', description: '' });
   const [saveState, setSaveState] = useState('');
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [listPage, setListPage] = useState(1);
+  const [listTotalPages, setListTotalPages] = useState(0);
 
-  const loadListings = async () => {
+  const loadListings = async (page = listPage) => {
+    setState('loading');
     try {
-      const data = await listMySpaces(1, 12);
+      const data = await listMySpaces(page, 12);
+      if (data.spaces.length === 0 && page > 1) {
+        setListPage(page - 1);
+        return;
+      }
       setListings(data.spaces);
       setListingCount(data.total);
+      setListTotalPages(data.totalPages);
       setState('ready');
     } catch (err) {
       setListError(err.message || 'Could not load your listings.');
@@ -147,8 +155,9 @@ export default function Profile() {
   };
 
   useEffect(() => {
-    loadListings();
-  }, []);
+    loadListings(listPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listPage]);
 
   useEffect(() => {
     if (user) {
@@ -235,7 +244,7 @@ export default function Profile() {
           </div>
 
           <div className="mt-4 flex flex-col gap-2">
-            <Link to="/list" className="btn btn-primary btn-block">List a space</Link>
+            <a href="/list" target="_blank" rel="noreferrer" className="btn btn-primary btn-block">List a space</a>
             <Link to="/bookings" className="btn btn-block">My bookings</Link>
             <Link to="/history" className="btn btn-block">Recently viewed</Link>
             <button className="btn btn-block" onClick={logout}>Log out</button>
@@ -286,25 +295,28 @@ export default function Profile() {
           <div className="mt-5">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="display text-xl">My listings · {listingCount}</h2>
-              <Link to="/list" className="btn btn-sm">+ New</Link>
+              <a href="/list" target="_blank" rel="noreferrer" className="btn btn-sm">+ New</a>
             </div>
             {state === 'loading' && <div className="card"><LoadingState label="Loading your listings…" /></div>}
-            {state === 'error' && <div className="card"><ErrorState message={listError} onRetry={loadListings} /></div>}
+            {state === 'error' && <div className="card"><ErrorState message={listError} onRetry={() => loadListings()} /></div>}
             {state === 'ready' && listings.length === 0 && (
               <div className="card">
                 <EmptyState
                   title="No listings yet"
                   body="Publish your first space — it takes about a minute."
-                  action={<Link to="/list" className="btn btn-primary">List your space</Link>}
+                  action={<a href="/list" target="_blank" rel="noreferrer" className="btn btn-primary">List your space</a>}
                 />
               </div>
             )}
             {state === 'ready' && listings.length > 0 && (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {listings.map((item) => (
-                  <ListingCard key={item.id} item={item} onChanged={loadListings} />
-                ))}
-              </div>
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {listings.map((item) => (
+                    <ListingCard key={item.id} item={item} onChanged={() => loadListings()} />
+                  ))}
+                </div>
+                <Pagination page={listPage} totalPages={listTotalPages} onChange={setListPage} />
+              </>
             )}
           </div>
         </div>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { SearchIcon } from '../components/icons.jsx';
 import { SpaceCard } from '../components/cards.jsx';
-import { Field, EmptyState, LoadingState, ErrorState } from '../components/ui.jsx';
+import { Field, EmptyState, LoadingState, ErrorState, Pagination } from '../components/ui.jsx';
 import { searchSpaces } from '../api.js';
 
 const SORTS = [
@@ -57,21 +57,6 @@ function toParams(query, page) {
   }
   if (page > 1) p.pg = String(page);
   return p;
-}
-
-// Compact page list: [1, …, window around current, …, last]
-function pageNumbers(page, totalPages) {
-  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
-  const window = [page - 1, page, page + 1].filter((p) => p > 1 && p < totalPages);
-  const pages = [1, ...window, totalPages];
-  const out = [];
-  let prev = 0;
-  for (const p of [...new Set(pages)].sort((a, b) => a - b)) {
-    if (p - prev > 1) out.push('…');
-    out.push(p);
-    prev = p;
-  }
-  return out;
 }
 
 export default function Search() {
@@ -267,44 +252,8 @@ export default function Search() {
                 ))}
               </div>
             )}
-            {state === 'ready' && totalPages > 1 && (
-              <nav aria-label="Pagination" className="flex items-center justify-center gap-1.5 pt-6">
-                <button
-                  className="btn btn-sm"
-                  disabled={page === 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  type="button"
-                >
-                  ← Prev
-                </button>
-                {pageNumbers(page, totalPages).map((p, i) =>
-                  p === '…' ? (
-                    <span key={`gap-${i}`} className="px-1 font-mono text-xs text-stone-300">…</span>
-                  ) : (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p)}
-                      aria-current={p === page ? 'page' : undefined}
-                      type="button"
-                      className={`h-8 min-w-8 rounded-lg px-2 font-mono text-[13px] transition ${
-                        p === page
-                          ? 'bg-[#2b2b2b] font-semibold text-white'
-                          : 'bg-white text-stone-500 shadow-sm hover:bg-stone-50'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ),
-                )}
-                <button
-                  className="btn btn-sm"
-                  disabled={page === totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  type="button"
-                >
-                  Next →
-                </button>
-              </nav>
+            {state === 'ready' && (
+              <Pagination page={page} totalPages={totalPages} onChange={setPage} />
             )}
           </div>
         </div>

@@ -36,4 +36,25 @@ class UserUpdateRequest(BaseModel):
     avatar_url: str | None = None
     is_verified: bool = False
 
+
+class UserPublicResponse(BaseModel):
+    """Public profile of any user. Email and phone stay private."""
+    id: UUID
+    username: str
+    university: str | None = None
+    description: Annotated[str | None, StringConstraints(max_length=MAX_DESCRIPTION_WORDS)] = None
+    avatar_url: str | None = None
+    is_verified: bool = False
+    created_at: datetime
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        from_attributes=True
+    )
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_id_to_str(cls, v):
+        return str(v)
+
     

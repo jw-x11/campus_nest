@@ -71,6 +71,64 @@ export function Avatar({ children, size = 36 }) {
   );
 }
 
+// Compact page list: [1, …, window around current, …, last]
+function pageNumbers(page, totalPages) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+  const window = [page - 1, page, page + 1].filter((p) => p > 1 && p < totalPages);
+  const pages = [1, ...window, totalPages];
+  const out = [];
+  let prev = 0;
+  for (const p of [...new Set(pages)].sort((a, b) => a - b)) {
+    if (p - prev > 1) out.push('…');
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+export function Pagination({ page, totalPages, onChange }) {
+  if (totalPages <= 1) return null;
+  return (
+    <nav aria-label="Pagination" className="flex items-center justify-center gap-1.5 pt-6">
+      <button
+        className="btn btn-sm"
+        disabled={page === 1}
+        onClick={() => onChange(Math.max(1, page - 1))}
+        type="button"
+      >
+        ← Prev
+      </button>
+      {pageNumbers(page, totalPages).map((p, i) =>
+        p === '…' ? (
+          <span key={`gap-${i}`} className="px-1 font-mono text-xs text-stone-300">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            aria-current={p === page ? 'page' : undefined}
+            type="button"
+            className={`h-8 min-w-8 rounded-lg px-2 font-mono text-[13px] transition ${
+              p === page
+                ? 'bg-[#2b2b2b] font-semibold text-white'
+                : 'bg-white text-stone-500 shadow-sm hover:bg-stone-50'
+            }`}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <button
+        className="btn btn-sm"
+        disabled={page === totalPages}
+        onClick={() => onChange(Math.min(totalPages, page + 1))}
+        type="button"
+      >
+        Next →
+      </button>
+    </nav>
+  );
+}
+
 export function ConfirmDialog({ open, title, body, confirmLabel = 'Confirm', danger = false, busy = false, onConfirm, onCancel }) {
   if (!open) return null;
   return (

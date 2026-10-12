@@ -10,7 +10,7 @@ export default function Footer() {
         </p>
         <div className="flex gap-5 text-[13px] text-stone-500">
           <Link to="/search" className="hover:text-stone-900">Browse</Link>
-          <Link to="/list" className="hover:text-stone-900">List a space</Link>
+          <a href="/list" target="_blank" rel="noreferrer" className="hover:text-stone-900">List a space</a>
           <Link to="/messages" className="hover:text-stone-900">Messages</Link>
         </div>
       </div>

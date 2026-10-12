@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { SearchIcon, ArrowRight, PinIcon, CalendarIcon } from '../components/icons.jsx';
 import { SpaceCard } from '../components/cards.jsx';
 import { EmptyState, LoadingState, ErrorState } from '../components/ui.jsx';
@@ -122,7 +122,7 @@ export default function Landing() {
             <EmptyState
               title="No listings yet"
               body="Be the first to list a space for the summer."
-              action={<Link to="/list" className="btn btn-primary">List your space</Link>}
+              action={<a href="/list" target="_blank" rel="noreferrer" className="btn btn-primary">List your space</a>}
             />
           </div>
         )}
@@ -157,9 +157,9 @@ export default function Landing() {
             <span className="inline-flex items-center gap-1.5"><CalendarIcon size={13} /> You approve every booking</span>
           </p>
         </div>
-        <Link to="/list" className="btn btn-dark">
+        <a href="/list" target="_blank" rel="noreferrer" className="btn btn-dark">
           List your space <ArrowRight size={14} />
-        </Link>
+        </a>
       </section>
     </div>
   );

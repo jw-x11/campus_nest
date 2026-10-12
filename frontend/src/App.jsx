@@ -12,6 +12,7 @@ import Bookings from './pages/Bookings.jsx';
 import History from './pages/History.jsx';
 import MapView from './pages/MapView.jsx';
 import Profile from './pages/Profile.jsx';
+import OwnerProfile from './pages/OwnerProfile.jsx';
 import Saved from './pages/Saved.jsx';
 import Login from './pages/Login.jsx';
 import { useApp } from './context/AppContext.jsx';
@@ -72,6 +73,7 @@ export default function App() {
             }
           />
           <Route path="/space/:id" element={<SpaceDetail />} />
+          <Route path="/owner/:id" element={<OwnerProfile />} />
           <Route
             path="/book/:id"
             element={

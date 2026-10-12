@@ -30,6 +30,27 @@ class TestGetMe:
         assert resp.status_code == 401
 
 
+class TestPublicProfile:
+    async def test_returns_public_subset(self, client, register):
+        user = await register()
+        resp = await client.get(f"/api/users/{user.id}")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert set(data) == {
+            "id", "username", "university", "description",
+            "avatar_url", "is_verified", "created_at",
+        }
+        assert data["id"] == user.id
+        assert data["username"] == user.username
+
+    async def test_unknown_user_is_not_found(self, client):
+        resp = await client.get(f"/api/users/{uuid.uuid4()}")
+        assert resp.status_code == 404
+
+    async def test_rejects_bad_uuid(self, client):
+        assert (await client.get("/api/users/not-a-uuid")).status_code == 400
+
+
 class TestUpdateMe:
     async def test_updates_profile_fields(self, client, register):
         user = await register()

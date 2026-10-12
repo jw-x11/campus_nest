@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,6 +34,8 @@ class SpaceItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True, strip_attributes=True, extra="ignore")
 
     id: Annotated[int, Field(ge=1)]
+    # Defaulted so detail entries cached before this field existed still validate.
+    owner_id: UUID | None = None
     title: Annotated[str, Field(min_length=1, max_length=255)]
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
