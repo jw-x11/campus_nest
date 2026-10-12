@@ -7,7 +7,15 @@ from types import SimpleNamespace
 import pytest
 
 from config.db_config import SessionLocal
-from crud.bookings import check_overlapping_booking, confirm_booking, create_pending_booking, request_cancellation
+from crud.bookings import (
+    StatusChanges,
+    advance_booking_statuses,
+    check_overlapping_booking,
+    confirm_booking,
+    create_pending_booking,
+    request_cancellation,
+)
+from jobs.booking_status import advance_booking_statuses_now, run_booking_status_job
 from models.bookings import Booking
 from schemas.bookings import BookingRequest
 
@@ -535,3 +543,69 @@ class TestUpdateBooking:
                                 headers=parties.renter.headers)
         assert resp.status_code == 400
         assert (await booking_row(others))["start_date"] == START
+
+
+class TestStatusJob:
+    TODAY = date(2026, 6, 15)
+
+    async def advance(self, today=TODAY) -> StatusChanges:
+        async with SessionLocal() as db:
+            return await advance_booking_statuses(db, today=today)
+
+    async def make(self, make_booking, parties, status, start_in, end_in, today=TODAY) -> str:
+        return await make_booking(parties.space, parties.renter, parties.owner, status=status,
+                                  start=today + timedelta(days=start_in), end=today + timedelta(days=end_in))
+
+    @pytest.mark.parametrize(
+        ("status", "start_in", "end_in", "expected"),
+        [
+            ("confirmed", 0, 10, "active"),
+            ("confirmed", 1, 10, "confirmed"),
+            ("active", -10, -1, "completed"),
+            ("active", -10, 0, "active"),
+            ("pending", -1, 10, "cancelled"),
+            ("accepted", -1, 10, "cancelled"),
+            ("pending", 0, 10, "pending"),
+            ("accepted", 0, 10, "accepted"),
+            ("cancelled", -10, -5, "cancelled"),
+            ("declined", -10, -5, "declined"),
+            ("completed", -10, -5, "completed"),
+        ],
+    )
+    async def test_moves(self, parties, make_booking, booking_row, status, start_in, end_in, expected):
+        booking_id = await self.make(make_booking, parties, status, start_in, end_in)
+        await self.advance()
+        assert (await booking_row(booking_id))["status"] == expected
+
+    async def test_missed_stay_completes_in_one_run(self, parties, make_booking, booking_row):
+        booking_id = await self.make(make_booking, parties, "confirmed", -10, -2)
+        assert await self.advance() == StatusChanges(cancelled=0, started=1, completed=1)
+        assert (await booking_row(booking_id))["status"] == "completed"
+
+    async def test_counts_and_repeat_runs(self, parties, make_booking):
+        await self.make(make_booking, parties, "pending", -1, 5)
+        await self.make(make_booking, parties, "accepted", -2, 5)
+        await self.make(make_booking, parties, "confirmed", 0, 5)
+        await self.make(make_booking, parties, "active", -5, -1)
+        assert await self.advance() == StatusChanges(cancelled=2, started=1, completed=1)
+        assert await self.advance() == StatusChanges(0, 0, 0)
+
+    async def test_runner_uses_its_own_session(self, parties, make_booking, booking_row):
+        booking_id = await self.make(make_booking, parties, "confirmed", 0, 5, today=date.today())
+        assert await advance_booking_statuses_now() == StatusChanges(cancelled=0, started=1, completed=0)
+        assert (await booking_row(booking_id))["status"] == "active"
+
+    async def test_loop_runs_once_at_start(self, parties, make_booking, booking_row):
+        booking_id = await self.make(make_booking, parties, "confirmed", 0, 5, today=date.today())
+        job = asyncio.create_task(run_booking_status_job(interval=3600))
+        try:
+            for _ in range(50):
+                if (await booking_row(booking_id))["status"] == "active":
+                    break
+                await asyncio.sleep(0.05)
+            assert (await booking_row(booking_id))["status"] == "active"
+            assert not job.done()
+        finally:
+            job.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await job

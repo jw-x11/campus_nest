@@ -547,7 +547,12 @@ Clear the caller's entire history.
 Router file: `backend/routers/bookings.py`.
 **States:** `pending` → `accepted` → `confirmed` → `active` → `completed`, plus terminals `cancelled` | `declined`.
 DB enum: `pending | accepted | confirmed | active | cancelled | completed | declined`.
-A nightly job writes `confirmed → active` when `start_date` begins and `active → completed` when `end_date` has passed. Unpaid `accepted` cancels instead of becoming `active`.
+A background job (`backend/jobs/booking_status.py`) runs at startup and then every hour, in one transaction per run:
+- `pending` or `accepted` with `start_date` before today → `cancelled` (the request was never confirmed in time; the start day itself is left for the owner to accept or confirm).
+- `confirmed` with `start_date` today or earlier → `active`.
+- `active` with `end_date` before today → `completed` (the last day still counts as part of the stay). This runs after the previous step, so a stay that passed entirely while the server was down completes in one run.
+
+Each step only matches rows in its from-status, so repeated runs or several workers are harmless. "Today" is the server's local date.
 
 ### Shared schema — `BookingResponse`
 ```json
@@ -587,7 +592,7 @@ Request for a booking (with Redis availability lock to prevent double-booking).
   6. Owner accept / decline: `accepted` / `declined`
   7. Payment succeeded (Stripe or owner in-person receipt): `confirmed`. Until payments exist,
      the owner confirms with `PATCH /bookings/confirm` (§6.4.1).
-  8. First day of the stay: `active` (nightly job, or same write as payment if `start_date` is already today)
+  8. First day of the stay: `active` (the hourly status job, or the same write as confirmation if `start_date` is already today)
   9. After rent ended: `completed`
 - **Errors:** `400` bad dates, `400 "Space is not accepting bookings"` when the space has
   `not_accepting = true`, `404` space, `409` unavailable/double-book.
@@ -669,7 +674,7 @@ Owner confirms an accepted booking. Stands in for the payment step until payment
 
 - **Response `200`:** message "Booking confirmed", `BookingResponse` in `data`.
 - **Logic:** only `accepted` bookings. Sets `status = confirmed`, or `active` directly when
-  `start_date` is today or earlier, since there is no nightly job yet to move it later. The update
+  `start_date` is today or earlier, rather than waiting up to an hour for the status job. The update
   only applies while the status is still `accepted`, so it cannot overwrite a concurrent cancel.
 - **Errors:** `400 "Booking is not accepted"`, `403` not the owner, `404` booking not found.
 

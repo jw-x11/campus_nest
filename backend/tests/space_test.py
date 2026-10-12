@@ -7,7 +7,7 @@ from caches.space import view_count_cache_key, view_dirty_key
 from config.cache_config import redis_client
 from conftest import space_payload
 from routers.spaces import MAX_SPACE_IMAGES
-from utils.view_count_flush import flush_view_counts_now
+from jobs.view_count_flush import flush_view_counts_now
 
 pytestmark = pytest.mark.usefixtures("services")
 

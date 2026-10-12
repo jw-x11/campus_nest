@@ -94,11 +94,11 @@ async def update_space_expired_at(db: AsyncSession, space_id: int) -> bool:
 
 async def update_space_info(db: AsyncSession, req: SpaceInfoRequest, space_id: int) -> SpaceItem | None:
     """Replace listing fields, renew the expiry, and return the updated listing."""
-    now = datetime.now(timezone.utc)
+    # updated_at uses the database clock, like the insert default, so owner lists order consistently.
     stm = update(Space).where(Space.id == space_id).values(
         **req.model_dump(exclude_unset=True, exclude_none=True),
-        updated_at=now,
-        expired_at=now + LISTING_LIFETIME)
+        updated_at=func.now(),
+        expired_at=datetime.now(timezone.utc) + LISTING_LIFETIME)
 
     if not await _update_space(db, space_id, stm):
         return None
@@ -110,7 +110,7 @@ async def set_space_inactive(db: AsyncSession, space_id: int) -> bool:
     stm = (
         update(Space)
         .where(Space.id == space_id, Space.is_active.is_(True))
-        .values(is_active=False, updated_at=datetime.now(timezone.utc))
+        .values(is_active=False, updated_at=func.now())
     )
     return await _update_space(db, space_id, stm)
 
@@ -122,7 +122,7 @@ async def set_space_active(db: AsyncSession, space_id: int) -> bool:
     stm = (
         update(Space)
         .where(Space.id == space_id, Space.is_active.is_(False))
-        .values(is_active=True, updated_at=datetime.now(timezone.utc))
+        .values(is_active=True, updated_at=func.now())
     )
     return await _update_space(db, space_id, stm)
 
@@ -132,7 +132,7 @@ async def set_space_not_accepting(db: AsyncSession, space_id: int, not_accepting
     stm = (
         update(Space)
         .where(Space.id == space_id)
-        .values(not_accepting=not_accepting, updated_at=datetime.now(timezone.utc))
+        .values(not_accepting=not_accepting, updated_at=func.now())
     )
     return await _update_space(db, space_id, stm)
 

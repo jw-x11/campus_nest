@@ -1,7 +1,7 @@
 import math
 from datetime import date
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, NamedTuple
 from uuid import UUID
 
 from models.bookings import Booking
@@ -259,10 +259,41 @@ async def confirm_booking(db: AsyncSession, booking_id: UUID, start_date: date) 
         return None
     return await db.get(Booking, booking_id, populate_existing=True)
 
-# TODO: nightly job check when the booking is has passed the start date, set the booking to active
-# TODO: nightly job check when the booking is has passed the end date, set the booking to completed
+
+class StatusChanges(NamedTuple):
+    cancelled: int
+    started: int
+    completed: int
+
+
+async def advance_booking_statuses(db: AsyncSession, today: date | None = None) -> StatusChanges:
+    """Apply the date-driven status moves in one transaction. today is injectable for tests.
+
+    Requests still pending or accepted after their start day are cancelled, confirmed stays
+    start on their first day, and active stays complete the day after their end date.
+    """
+    today = today or date.today()
+    cancelled = await db.execute(
+        update(Booking)
+        .where(Booking.status.in_(["pending", "accepted"]), Booking.start_date < today)
+        .values(status="cancelled")
+    )
+    started = await db.execute(
+        update(Booking)
+        .where(Booking.status == "confirmed", Booking.start_date <= today)
+        .values(status="active")
+    )
+    # Runs after the start step, so a stay that passed entirely while the job was down completes in one run.
+    completed = await db.execute(
+        update(Booking)
+        .where(Booking.status == "active", Booking.end_date < today)
+        .values(status="completed")
+    )
+    await db.commit()
+    return StatusChanges(cancelled.rowcount, started.rowcount, completed.rowcount)
+
+# TODO: when update booking, make date change and change status to pending one transaction. Special deal stays
 # TODO: update booking detail also change the total price + overlap check
-# TODO: when update booking, make date change and change status to pending a transaction. Special deal stays
 # TODO: Create booking check expired_at
 # TODO: Create booking check if date is outside of space's availability
 # TODO: update booking check if date is outside of space's availability

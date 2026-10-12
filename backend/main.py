@@ -12,7 +12,8 @@ from routers.spaces import api_spaces
 from routers.bookings import api_bookings
 from routers.view_history import api_view_history
 from routers.saved_space import api_saved_space
-from utils.view_count_flush import flush_view_counts_now, run_view_count_flusher
+from jobs.booking_status import run_booking_status_job
+from jobs.view_count_flush import flush_view_counts_now, run_view_count_flusher
 
 # TODO: Tests: Unit, line coverage
 # TODO: map location integration
@@ -29,10 +30,12 @@ async def lifespan(app: FastAPI):
     await db_config.connect()
     await s3db_config.connect()
     view_flusher = asyncio.create_task(run_view_count_flusher())
+    booking_status_job = asyncio.create_task(run_booking_status_job())
     yield
-    view_flusher.cancel()
-    with suppress(asyncio.CancelledError):
-        await view_flusher
+    for job in (view_flusher, booking_status_job):
+        job.cancel()
+        with suppress(asyncio.CancelledError):
+            await job
     # Write views from the last interval before the database pool closes.
     await flush_view_counts_now()
     await db_config.disconnect()
