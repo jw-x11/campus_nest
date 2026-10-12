@@ -574,7 +574,7 @@ Each step only matches rows in its from-status, so repeated runs or several work
 `cancel_requested_by` is `null`, `"renter"`, or `"owner"`. `null` means no pending cancel; a role means that party has requested cancel and is waiting on the other.
 
 ### 6.1 `POST /bookings`
-Request for a booking (with Redis availability lock to prevent double-booking).
+Request for a booking. Spaces can be shared, so other renters' bookings never block a request; the owner decides what fits when accepting.
 
 - **Auth:** required
 - **Request Body**
@@ -583,19 +583,26 @@ Request for a booking (with Redis availability lock to prevent double-booking).
 ```
 - **Response `201`:** `BookingResponse` (status `pending`).
 - **Logic**
-  1. Validate dates within the space's `available_from`/`available_to` and `end > start`.
-  2. Acquire Redis lock `lock:booking:{space_id}:{date}` (TTL 10 min) for the range — use
-     `SET NX`. If any date is locked or already booked → `409 SPACE_UNAVAILABLE`.
-  3. Insert booking (`pending`); snapshot `owner_id` from the listing; compute `total_price` from `price`/`price_type` × duration.
-  4. Release/rely on lock TTL once persisted.
+  1. Validate `end > start`, `start >= today` (starting today is allowed), and that both dates fall within the space's `available_from`/`available_to` (either edge may be used).
+  2. The space must be active, accepting requests, not past `expired_at`, and owned by someone else.
+  3. Reject if the caller already has an unfinished (`pending`, `accepted`, `confirmed`, `active`) booking on this space overlapping the range.
+  4. Insert booking (`pending`); snapshot `owner_id`, `price` and `price_type` from the listing; compute `total_price` from `price`/`price_type` × duration (weeks or 30-day months, rounded up).
   5. Renter request booking: `pending`
   6. Owner accept / decline: `accepted` / `declined`
   7. Payment succeeded (Stripe or owner in-person receipt): `confirmed`. Until payments exist,
      the owner confirms with `PATCH /bookings/confirm` (§6.4.1).
   8. First day of the stay: `active` (the hourly status job, or the same write as confirmation if `start_date` is already today)
   9. After rent ended: `completed`
-- **Errors:** `400` bad dates, `400 "Space is not accepting bookings"` when the space has
-  `not_accepting = true`, `404` space, `409` unavailable/double-book.
+- **Errors:** all `400` unless noted.
+  - `"Start date must be before end date"`
+  - `"Start date cannot be in the past"`
+  - `"Space is not active"`
+  - `"Space is not accepting bookings"` when the space has `not_accepting = true`
+  - `"You cannot book your own space"`
+  - `"Space listing has expired"`
+  - `"Dates are outside the space's availability"`
+  - `"Overlapping booking found"` (caller's own bookings only)
+  - `404 "Space not found"`
 
 ### 6.2 `GET /bookings/me`
 List the caller's bookings.
@@ -660,7 +667,7 @@ Take back the caller's own cancel request on a `confirmed` or `active` booking.
 {"space_id": 1}
 ```
 
-* **Logic**: owner accept the booking request: mark booking as `accepted`. Dates are held; other users cannot book the same range. Payment has not happened yet.
+* **Logic**: owner accept the booking request: mark booking as `accepted`. Other renters can still request and be accepted for overlapping dates if the owner judges there is room. Payment has not happened yet.
 
 #### 6.4.1 `PATCH /bookings/confirm`
 Owner confirms an accepted booking. Stands in for the payment step until payments exist.
@@ -722,7 +729,13 @@ Owner confirms an accepted booking. Stands in for the payment step until payment
 }
 ```
 
-* Logic: Update booking dates for renter. The body's `booking_id` must match the path, otherwise `400`. Allowed while `pending` or `accepted`; an `accepted` booking goes back to `pending`.
+* Logic: Update booking dates for renter. The body's `booking_id` must match the path, otherwise `400`. Allowed while `pending` or `accepted`.
+  * The new start date cannot be before today, otherwise `400 "Start date cannot be in the past"`.
+  * The listing must still be active and unexpired, otherwise `400 "Space is not active"` or `400 "Space listing has expired"`. `not_accepting` does not block date changes, since it only stops new requests.
+  * The new dates must fall within the space's availability window, otherwise `400 "Dates are outside the space's availability"`.
+  * They must not overlap the renter's other unfinished bookings on the same space (the booking being edited is ignored), otherwise `400 "Overlapping booking found"`.
+  * `total_price` is recomputed from the booking's own snapshot `price`/`price_type`, so a later change to the listing's price does not affect it. `special_deal` is kept.
+  * Dates, total and the reset to `pending` are written in one statement; if the booking left `pending`/`accepted` in the meantime, nothing changes and the response is `400 "Cannot update booking"`.
 
 * **Response**: Booking details
 

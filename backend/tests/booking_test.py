@@ -7,17 +7,20 @@ from types import SimpleNamespace
 import pytest
 
 from config.db_config import SessionLocal
+from conftest import space_payload
 from crud.bookings import (
     StatusChanges,
     advance_booking_statuses,
     check_overlapping_booking,
+    compute_total_price,
     confirm_booking,
     create_pending_booking,
     request_cancellation,
+    update_booking_details,
 )
 from jobs.booking_status import advance_booking_statuses_now, run_booking_status_job
 from models.bookings import Booking
-from schemas.bookings import BookingRequest
+from schemas.bookings import BookingRequest, BookingUpdateRequest
 
 pytestmark = pytest.mark.usefixtures("services")
 
@@ -35,7 +38,8 @@ async def parties(register, create_space):
 def booking_row(db_execute):
     async def _booking_row(booking_id: str) -> dict:
         [row] = await db_execute(
-            "SELECT status, cancel_requested_by, special_deal, start_date, end_date FROM bookings WHERE id = :id",
+            "SELECT status, cancel_requested_by, special_deal, total_price, start_date, end_date "
+            "FROM bookings WHERE id = :id",
             id=booking_id,
         )
         return dict(row._mapping)
@@ -73,6 +77,52 @@ class TestCreateBooking:
                                  headers=parties.renter.headers)
         assert resp.status_code == 400
         assert resp.json()["message"] == "Space is not accepting bookings"
+
+    async def test_owner_cannot_book_own_space(self, client, parties):
+        resp = await client.post("/api/bookings/", json=booking_body(parties.space["id"]),
+                                 headers=parties.owner.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "You cannot book your own space"
+
+    async def test_expired_space(self, client, parties, expire_space):
+        await expire_space(parties.space["id"])
+        resp = await client.post("/api/bookings/", json=booking_body(parties.space["id"]),
+                                 headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Space listing has expired"
+
+    @pytest.mark.parametrize(
+        "start_shift, end_shift, ok",
+        [
+            (-1, 0, False),  # starts the day before the window opens
+            (0, 1, False),   # ends the day after the window closes
+            (0, 0, True),    # exactly the window
+        ],
+    )
+    async def test_dates_must_fit_availability(self, client, parties, start_shift, end_shift, ok):
+        window_start = date.fromisoformat(parties.space["available_from"])
+        window_end = date.fromisoformat(parties.space["available_to"])
+        body = booking_body(parties.space["id"], window_start + timedelta(days=start_shift),
+                            window_end + timedelta(days=end_shift))
+        resp = await client.post("/api/bookings/", json=body, headers=parties.renter.headers)
+        if ok:
+            assert resp.status_code == 200
+        else:
+            assert resp.status_code == 400
+            assert resp.json()["message"] == "Dates are outside the space's availability"
+
+    @pytest.mark.parametrize("start_in, ok", [(-1, False), (0, True)])
+    async def test_start_date_cannot_be_in_the_past(self, client, parties, create_space, start_in, ok):
+        today = date.today()
+        # window opened days ago, so only the past-date rule can reject yesterday
+        space = await create_space(parties.owner, available_from=(today - timedelta(days=5)).isoformat())
+        body = booking_body(space["id"], today + timedelta(days=start_in), today + timedelta(days=10))
+        resp = await client.post("/api/bookings/", json=body, headers=parties.renter.headers)
+        if ok:
+            assert resp.status_code == 200
+        else:
+            assert resp.status_code == 400
+            assert resp.json()["message"] == "Start date cannot be in the past"
 
     async def test_overlapping_booking(self, client, parties, make_booking):
         await make_booking(parties.space, parties.renter, parties.owner, start=START, end=END)
@@ -133,6 +183,17 @@ class TestBookingCrud:
             ("recurring_per_month", 45, Decimal("80.00")),
         ],
     )
+    def test_compute_total_price(self, price_type, days, expected_total):
+        assert compute_total_price(Decimal("40.00"), price_type, START, START + timedelta(days=days)) == expected_total
+
+    @pytest.mark.parametrize(
+        "price_type, days, expected_total",
+        [
+            ("single", 45, Decimal("40.00")),
+            ("recurring_per_week", 8, Decimal("80.00")),
+            ("recurring_per_month", 45, Decimal("80.00")),
+        ],
+    )
     async def test_total_price_rounds_up_to_whole_periods(self, parties, price_type, days, expected_total):
         space = SimpleNamespace(price=Decimal("40.00"), price_type=price_type, owner_id=uuid.UUID(parties.owner.id))
         request = BookingRequest(space_id=parties.space["id"], start_date=START,
@@ -181,6 +242,13 @@ class TestBookingCrud:
         async with SessionLocal() as db:
             assert not await check_overlapping_booking(
                 db, uuid.UUID(parties.renter.id), parties.space["id"], START, END
+            )
+
+    async def test_overlap_can_exclude_the_booking_being_edited(self, parties, make_booking):
+        booking_id = uuid.UUID(await make_booking(parties.space, parties.renter, parties.owner))
+        async with SessionLocal() as db:
+            assert not await check_overlapping_booking(
+                db, uuid.UUID(parties.renter.id), parties.space["id"], START, END, exclude_booking_id=booking_id
             )
 
 
@@ -535,6 +603,113 @@ class TestUpdateBooking:
         assert resp.status_code == 200
         row = await booking_row(booking_id)
         assert (row["start_date"], row["end_date"], row["status"]) == (new_start, new_end, "pending")
+
+    async def test_total_price_follows_new_dates(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        resp = await client.put(f"/api/bookings/details/{booking_id}",
+                                json=self._body(booking_id, START, START + timedelta(days=14)),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 200
+        assert (await booking_row(booking_id))["total_price"] == Decimal("80.00")  # 2 weeks at 40
+
+    async def test_total_price_uses_the_booked_rate(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        repriced = await client.put(f"/api/spaces/{parties.space['id']}",
+                                    json=space_payload(price=100, price_type="recurring_per_week"),
+                                    headers=parties.owner.headers)
+        assert repriced.status_code == 200
+        resp = await client.put(f"/api/bookings/details/{booking_id}",
+                                json=self._body(booking_id, START, START + timedelta(days=7)),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 200
+        assert (await booking_row(booking_id))["total_price"] == Decimal("40.00")
+
+    async def test_rejects_overlap_with_own_other_booking(self, client, parties, make_booking, booking_row):
+        later = END + timedelta(days=10)
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        await make_booking(parties.space, parties.renter, parties.owner, start=later, end=later + timedelta(days=5))
+        resp = await client.put(f"/api/bookings/details/{booking_id}",
+                                json=self._body(booking_id, START, later + timedelta(days=1)),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Overlapping booking found"
+        assert (await booking_row(booking_id))["end_date"] == END
+
+    async def test_other_renters_do_not_block(self, client, parties, make_booking):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        await make_booking(parties.space, parties.stranger, parties.owner, start=START, end=END + timedelta(days=5))
+        resp = await client.put(f"/api/bookings/details/{booking_id}", json=self._body(booking_id),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 200
+
+    async def test_dates_must_fit_availability(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        window_end = date.fromisoformat(parties.space["available_to"])
+        resp = await client.put(f"/api/bookings/details/{booking_id}",
+                                json=self._body(booking_id, START, window_end + timedelta(days=1)),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Dates are outside the space's availability"
+        assert (await booking_row(booking_id))["end_date"] == END
+
+    async def test_start_date_cannot_move_into_the_past(self, client, parties, create_space, make_booking,
+                                                        booking_row):
+        today = date.today()
+        space = await create_space(parties.owner, available_from=(today - timedelta(days=5)).isoformat())
+        booking_id = await make_booking(space, parties.renter, parties.owner)
+        resp = await client.put(f"/api/bookings/details/{booking_id}",
+                                json=self._body(booking_id, today - timedelta(days=1), END),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Start date cannot be in the past"
+        assert (await booking_row(booking_id))["start_date"] == START
+
+    async def test_hidden_listing(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        await client.delete(f"/api/spaces/{parties.space['id']}", headers=parties.owner.headers)
+        resp = await client.put(f"/api/bookings/details/{booking_id}", json=self._body(booking_id),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Space is not active"
+        assert (await booking_row(booking_id))["start_date"] == START
+
+    async def test_expired_listing(self, client, parties, make_booking, booking_row, expire_space):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        await expire_space(parties.space["id"])
+        resp = await client.put(f"/api/bookings/details/{booking_id}", json=self._body(booking_id),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Space listing has expired"
+        assert (await booking_row(booking_id))["start_date"] == START
+
+    async def test_not_accepting_listing_still_allows_changes(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        paused = await client.patch(f"/api/spaces/{parties.space['id']}/accepting", json={"not_accepting": True},
+                                    headers=parties.owner.headers)
+        assert paused.status_code == 200
+        resp = await client.put(f"/api/bookings/details/{booking_id}", json=self._body(booking_id),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 200
+        assert (await booking_row(booking_id))["start_date"] == START + timedelta(days=1)
+
+    async def test_special_deal_survives_date_change(self, client, parties, make_booking, booking_row, db_execute):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="accepted")
+        await db_execute("UPDATE bookings SET special_deal = 25.50 WHERE id = :id", id=booking_id)
+        resp = await client.put(f"/api/bookings/details/{booking_id}", json=self._body(booking_id),
+                                headers=parties.renter.headers)
+        assert resp.status_code == 200
+        row = await booking_row(booking_id)
+        assert (row["status"], row["special_deal"]) == ("pending", Decimal("25.50"))
+
+    @pytest.mark.parametrize("status", ["confirmed", "cancelled"])
+    async def test_skips_booking_that_changed_after_it_was_read(self, parties, make_booking, booking_row, status):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status=status)
+        body = BookingUpdateRequest(booking_id=booking_id, start_date=START + timedelta(days=1),
+                                    end_date=END + timedelta(days=1))
+        async with SessionLocal() as db:
+            assert await update_booking_details(db, uuid.UUID(booking_id), body, Decimal("40")) is False
+        row = await booking_row(booking_id)
+        assert (row["status"], row["start_date"]) == (status, START)
 
     async def test_body_id_must_match_url(self, client, parties, make_booking, booking_row):
         own = await make_booking(parties.space, parties.renter, parties.owner)

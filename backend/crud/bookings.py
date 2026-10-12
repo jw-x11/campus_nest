@@ -11,36 +11,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func, or_, select, update
 
 
+def compute_total_price(price: Decimal, price_type: str, start_date: date, end_date: date) -> Decimal:
+    days = (end_date - start_date).days
+    if price_type == "single":
+        return price
+    if price_type == "recurring_per_month":
+        # charge per month, rounded up to the nearest month
+        return price * math.ceil(days / 30)
+    if price_type == "recurring_per_week":
+        # charge per week, rounded up to the nearest week
+        return price * math.ceil(days / 7)
+    raise ValueError(f"Invalid price type: {price_type}")
+
+
 async def create_pending_booking(
     db: AsyncSession, request: BookingRequest, user_id: UUID, space: Space
 ) -> Booking:
-    price = space.price
-    price_type = space.price_type
-
-    if price_type == "single":
-        total_price = price
-    elif price_type == "recurring_per_month":
-        # charge per month, rounded up to the nearest month
-        total_price = price * math.ceil(
-            (request.end_date - request.start_date).days / 30
-        )
-    elif price_type == "recurring_per_week":
-        # charge per week, rounded up to the nearest week
-        total_price = price * math.ceil(
-            (request.end_date - request.start_date).days / 7
-        )
-    else:
-        raise ValueError(f"Invalid price type: {price_type}")
-
     pending_booking = Booking(
         space_id=request.space_id,
         renter_id=user_id,
         owner_id=space.owner_id,
         start_date=request.start_date,
         end_date=request.end_date,
-        price=price,
-        price_type=price_type,
-        total_price=total_price,
+        price=space.price,
+        price_type=space.price_type,
+        total_price=compute_total_price(space.price, space.price_type, request.start_date, request.end_date),
     )
     db.add(pending_booking)
     await db.commit()
@@ -88,14 +83,21 @@ async def get_bookings_list(
 
 
 async def update_booking_details(
-    db: AsyncSession, booking_id: UUID, request: BookingUpdateRequest
+    db: AsyncSession, booking_id: UUID, request: BookingUpdateRequest, total_price: Decimal
 ) -> bool:
+    """Change the dates and total, and send the booking back to pending for the owner to re-accept.
+
+    One statement, so the dates never change without the status reset. special_deal is kept.
+    False when the booking is no longer pending or accepted.
+    """
     stm = (
         update(Booking)
-        .where(Booking.id == booking_id)
+        .where(Booking.id == booking_id, Booking.status.in_(["pending", "accepted"]))
         .values(
             start_date=request.start_date,
             end_date=request.end_date,
+            total_price=total_price,
+            status="pending",
         )
     )
     result = await db.execute(stm)
@@ -130,7 +132,9 @@ async def check_overlapping_booking(
     space_id: int,
     start_date: date,
     end_date: date,
+    exclude_booking_id: UUID | None = None,
 ) -> bool:
+    """exclude_booking_id leaves out the booking being edited so it does not overlap itself."""
     # Two ranges overlap iff each starts before the other ends:
     #   existing.start < new.end  AND  existing.end > new.start
     # Existing Jun 1–Jun 30, new Jun 15–Jul 10 → overlap (shared Jun 15–30)
@@ -145,6 +149,8 @@ async def check_overlapping_booking(
             Booking.end_date > start_date,
         )
     )
+    if exclude_booking_id is not None:
+        stm = stm.where(Booking.id != exclude_booking_id)
     result = await db.execute(stm)
     return result.scalar_one() > 0
 
@@ -292,11 +298,5 @@ async def advance_booking_statuses(db: AsyncSession, today: date | None = None) 
     await db.commit()
     return StatusChanges(cancelled.rowcount, started.rowcount, completed.rowcount)
 
-# TODO: when update booking, make date change and change status to pending one transaction. Special deal stays
-# TODO: update booking detail also change the total price + overlap check
-# TODO: Create booking check expired_at
-# TODO: Create booking check if date is outside of space's availability
-# TODO: update booking check if date is outside of space's availability
-# TODO: Owner cannot book own space
-# TODO:  Making each update conditional on the expected current status (fix for bug 7)
+# TODO: Two actions at the same moment can clash. Every action reads the status and then writes it in a separate step. For example, if the renter cancels while the owner accepts, the last write wins, and an accept could overwrite the cancel. Making each update conditional on the expected current status (for example, update only WHERE status = 'pending') would fix this.
 # TODO: Test these new changes

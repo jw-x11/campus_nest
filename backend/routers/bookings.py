@@ -1,3 +1,4 @@
+from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -5,6 +6,7 @@ from schemas.users import UserInfoResponse
 from config.db_config import get_db
 from crud.bookings import (
     check_overlapping_booking,
+    compute_total_price,
     confirm_booking,
     create_pending_booking,
     get_booking_by_id,
@@ -21,6 +23,7 @@ from crud.bookings import (
 from crud.spaces import get_space_record
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.bookings import Booking
+from models.spaces import Space
 from models.users import User
 from schemas.bookings import (
     BookingRequest,
@@ -44,6 +47,10 @@ def booking_role(user_id: UUID, booking: Booking) -> Literal["renter", "owner"]:
     return "renter" if user_id == booking.renter_id else "owner"
 
 
+def dates_in_window(space: Space, start: date, end: date) -> bool:
+    return space.available_from <= start and end <= space.available_to
+
+
 @api_bookings.get("/status")
 async def status(user: Annotated[UserInfoResponse, Depends(get_current_user_info)]):
     return success_response(message=f"Hello {user.username}", data=None)
@@ -56,11 +63,12 @@ async def create_booking(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
 ):
-    # validate dates within the listing window and end > start
     if request.start_date >= request.end_date:
         raise HTTPException(status_code=400, detail="Start date must be before end date")
+    if request.start_date < date.today():
+        raise HTTPException(status_code=400, detail="Start date cannot be in the past")
 
-    # check if space exists and is active
+    # space must be listed, taking requests, someone else's, and open for these dates
     space = await get_space_record(db, request.space_id)
     if space is None:
         raise HTTPException(status_code=404, detail="Space not found")
@@ -68,6 +76,12 @@ async def create_booking(
         raise HTTPException(status_code=400, detail="Space is not active")
     if space.not_accepting:
         raise HTTPException(status_code=400, detail="Space is not accepting bookings")
+    if space.owner_id == user.id:
+        raise HTTPException(status_code=400, detail="You cannot book your own space")
+    if space.expired_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Space listing has expired")
+    if not dates_in_window(space, request.start_date, request.end_date):
+        raise HTTPException(status_code=400, detail="Dates are outside the space's availability")
 
     # check if booking for the same space and dates by the same user already exists
     if await check_overlapping_booking(db, user.id, request.space_id, request.start_date, request.end_date):
@@ -141,19 +155,30 @@ async def update_booking(
         raise HTTPException(status_code=400, detail="Cannot update booking")
 
 
-    # verify dates are within the listing window and end > start
     if body.start_date >= body.end_date:
         raise HTTPException(status_code=400, detail="Start date must be before end date")
-    
-    # mark as pending
-    if booking.status == "accepted":
-        if not await set_booking_status(db, booking_id, "pending"):
-            raise HTTPException(status_code=500, detail="Failed to update booking")
+    if body.start_date < date.today():
+        raise HTTPException(status_code=400, detail="Start date cannot be in the past")
 
-    # update booking details
-    result = await update_booking_details(db, booking_id, body)
-    if not result:
-        raise HTTPException(status_code=500, detail="Failed to update booking")
+    # not_accepting only blocks new requests, so it does not stop changes to this one
+    space = await get_space_record(db, booking.space_id)
+    if space is None or space.is_active is False:
+        raise HTTPException(status_code=400, detail="Space is not active")
+    if space.expired_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Space listing has expired")
+    if not dates_in_window(space, body.start_date, body.end_date):
+        raise HTTPException(status_code=400, detail="Dates are outside the space's availability")
+
+    if await check_overlapping_booking(db, user.id, booking.space_id, body.start_date, body.end_date,
+                                       exclude_booking_id=booking_id):
+        raise HTTPException(status_code=400, detail="Overlapping booking found")
+
+    # priced from the booking's own snapshot rate, not the listing's current price
+    total_price = compute_total_price(booking.price, booking.price_type, body.start_date, body.end_date)
+
+    # new dates and the reset to pending land together; fails if the status changed since the read above
+    if not await update_booking_details(db, booking_id, body, total_price):
+        raise HTTPException(status_code=400, detail="Cannot update booking")
     return success_response(message="Booking updated successfully", data=None)
 
 
