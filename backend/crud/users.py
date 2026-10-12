@@ -10,6 +10,7 @@ from schemas.auth import AuthRegisterRequest
 from utils.auth import hash_password
 from caches.auth import get_user_id_by_token
 from schemas.users import UserInfoResponse, UserUpdateRequest
+from utils.images import AVATAR_LONG_EDGE, resize_long_edge
 from utils.s3 import read_image
 from config.s3db_config import delete_s3_object_by_url, upload_bytes
 
@@ -125,8 +126,9 @@ async def soft_delete_user(session: AsyncSession, user_id: UUID) -> bool:
 
 
 async def upload_user_avatar(session: AsyncSession, user: User, file: UploadFile) -> User:
-    """Store a new avatar and delete the previous object after the row is updated."""
+    """Store a resized avatar and delete the previous object after the row is updated."""
     body, content_type = await read_image(file)
+    body, content_type = resize_long_edge(body, content_type, AVATAR_LONG_EDGE)
     url = await upload_bytes(body, prefix=f"avatars/{user.id}", content_type=content_type)
     old_url = user.avatar_url
     try:

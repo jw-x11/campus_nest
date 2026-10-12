@@ -4,6 +4,8 @@ from fastapi import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 THUMBNAIL_LONG_EDGE = 400
+# Shown at up to ~96px; 256 stays sharp on 2x screens.
+AVATAR_LONG_EDGE = 256
 
 _FORMAT_BY_TYPE = {
     "image/jpeg": "JPEG",

@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
+from io import BytesIO
 
 import pytest
+from PIL import Image
 
 from caches.auth import create_token
 
@@ -95,6 +97,35 @@ class TestAvatar:
         assert f"avatars/{user.id}/" in url
         assert url.endswith(".png")
         assert url in fake_s3.objects
+
+    @pytest.mark.parametrize(
+        "size, stored_size",
+        [((1200, 800), (256, 171)),   # long edge shrunk to 256, aspect kept
+         ((600, 1500), (102, 256)),
+         ((120, 80), (120, 80))],     # already small: left as is
+    )
+    async def test_avatar_is_resized(self, client, register, fake_s3, image_bytes, size, stored_size):
+        user = await register()
+        resp = await client.post(
+            "/api/users/me/avatar",
+            files={"file": ("me.jpg", image_bytes(*size, fmt="JPEG"), "image/jpeg")},
+            headers=user.headers,
+        )
+        assert resp.status_code == 200
+        body, content_type = fake_s3.objects[resp.json()["data"]["avatar_url"]]
+        assert content_type == "image/jpeg"
+        with Image.open(BytesIO(body)) as stored:
+            assert stored.size == stored_size
+
+    async def test_rejects_bytes_that_are_not_an_image(self, client, register, fake_s3):
+        user = await register()
+        resp = await client.post(
+            "/api/users/me/avatar", files={"file": ("me.png", b"not really a png", "image/png")},
+            headers=user.headers,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "INVALID_IMAGE"
+        assert fake_s3.objects == {}
 
     async def test_me_reflects_new_avatar(self, client, register, image_bytes):
         user = await register()
