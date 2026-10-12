@@ -555,6 +555,43 @@ A background job (`backend/jobs/booking_status.py`) runs at startup and then eve
 
 Each step only matches rows in its from-status, so repeated runs or several workers are harmless. "Today" is the server's local date.
 
+#### Status transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: renter POST /bookings
+
+    pending --> accepted: owner /accept
+    pending --> declined: owner /decline
+    pending --> cancelled: either party /cancel
+    pending --> pending: renter changes dates
+
+    accepted --> pending: renter changes dates
+    accepted --> accepted: owner /special sets deal
+    accepted --> cancelled: either party /cancel
+    accepted --> confirmed: owner /confirm, start after today
+    accepted --> active: owner /confirm, start today or earlier
+
+    pending --> cancelled: job, start date passed
+    accepted --> cancelled: job, start date passed
+
+    confirmed --> active: job, start date reached
+    active --> completed: job, end date passed
+
+    confirmed --> confirmed: one party /cancel or /cancel/withdraw
+    active --> active: one party /cancel or /cancel/withdraw
+    confirmed --> cancelled: second party /cancel
+    active --> cancelled: second party /cancel
+
+    declined --> [*]
+    cancelled --> [*]
+    completed --> [*]
+```
+
+- Dates can only change while `pending` or `accepted`; a change always returns the booking to `pending` with a recomputed total and keeps any special deal.
+- On `confirmed` or `active`, the first `/cancel` only records `cancel_requested_by`; the requester can take it back with `/cancel/withdraw`, and the other party's `/cancel` completes it.
+- `declined`, `cancelled` and `completed` are final.
+
 ### Shared schema — `BookingResponse`
 ```json
 {
