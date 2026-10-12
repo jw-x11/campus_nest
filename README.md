@@ -14,7 +14,8 @@ Campus Nest is a student-focused marketplace for renting unused space as storage
 
 ## Tech stack
 
-- React
+- React + Vite
+- Tailwind CSS (v4, via `@tailwindcss/vite`)
 - FastAPI
 - PostgreSQL
 - Redis

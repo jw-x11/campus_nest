@@ -15,7 +15,6 @@ from routers.saved_space import api_saved_space
 from jobs.booking_status import run_booking_status_job
 from jobs.view_count_flush import flush_view_counts_now, run_view_count_flusher
 
-# TODO: Tests: Unit, line coverage
 # TODO: map location integration
 # TODO: SocketIO live message
 # TODO: Reviews and comments section

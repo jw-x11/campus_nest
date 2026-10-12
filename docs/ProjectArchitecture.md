@@ -43,6 +43,8 @@
 
 | Layer            | Technology                        |
 | ---------------- | --------------------------------- |
+| Frontend         | React + Vite + React Router       |
+| Styling          | Tailwind CSS v4 (`@tailwindcss/vite`) |
 | API Framework    | FastAPI + Uvicorn                 |
 | Database         | PostgreSQL + asyncpg              |
 | Media storage    | SeaweedFS (S3-compatible)         |
@@ -55,6 +57,14 @@
 | Analytics (business)  | Custom Postgres queries + Recharts |
 | Testing          | pytest + httpx                    |
 | Deployment       | Docker + Nginx + Railway/Render   |
+
+**Frontend styling (Tailwind CSS v4).** The Vite plugin (`@tailwindcss/vite`,
+registered in `frontend/vite.config.js`) compiles utilities on demand; `frontend/src/index.css`
+starts with `@import "tailwindcss"` followed by the existing Campus Nest design tokens
+(`--ink`, `--accent`, `.wire-card`, `.btn`, …). Use Tailwind utilities for layout/spacing in
+new JSX and keep the custom `wire-*` / `btn` classes for the neo-brutalist components —
+both work together. No `tailwind.config.js` needed (v4 is CSS-first; use `@theme` in CSS
+if you need custom tokens).
 
 ### Core API Endpoints
 
