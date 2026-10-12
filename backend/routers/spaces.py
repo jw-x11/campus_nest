@@ -8,7 +8,14 @@ from schemas.users import UserInfoResponse
 from utils.deps import get_current_user, get_current_user_info
 from models.users import User
 from config.db_config import get_db
-from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceItemReduced, SpaceListReducedResponse, SpaceSearchQuery
+from schemas.spaces import (
+    SpaceAcceptingRequest,
+    SpaceInfoRequest,
+    SpaceItem,
+    SpaceItemReduced,
+    SpaceListReducedResponse,
+    SpaceSearchQuery,
+)
 from utils.response import success_response
 from crud.spaces import (
     count_space_images,
@@ -21,6 +28,7 @@ from crud.spaces import (
     increase_view_count,
     list_space_image_urls,
     set_space_inactive,
+    set_space_not_accepting,
     update_space_expired_at,
     update_space_info,
     upload_space_images,
@@ -210,6 +218,22 @@ async def update_space(
     return success_response(message="Space updated", data=await to_space_item(result, images))
 
 
+# Owner stops or resumes taking new booking requests; the listing stays visible.
+@api_spaces.patch("/{space_id}/accepting")
+async def update_space_accepting(
+    space_id: int,
+    body: SpaceAcceptingRequest,
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await require_space_owner(db, space_id, user.id)
+    if not await set_space_not_accepting(db, space_id, body.not_accepting):
+        raise HTTPException(status_code=404, detail="Space not found")
+    space = await get_space_by_id(db, space_id)
+    images = await list_space_image_urls(db, space_id)
+    return success_response(message="Space updated", data=await to_space_item(space, images))
+
+
 
 
 
@@ -248,8 +272,3 @@ async def post_space_images(
     
     urls = await upload_space_images(db, space_id, files)
     return success_response(message="Images uploaded", data={"images": urls})
-
-
-# TODO: add is_full to table
-# TODO: Search query: add show_full to query
-# TODO: Search filter out is_full if show_full is False

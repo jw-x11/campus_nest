@@ -127,6 +127,16 @@ async def set_space_active(db: AsyncSession, space_id: int) -> bool:
     return await _update_space(db, space_id, stm)
 
 
+async def set_space_not_accepting(db: AsyncSession, space_id: int, not_accepting: bool) -> bool:
+    """Stop or resume taking new booking requests. False when the listing does not exist."""
+    stm = (
+        update(Space)
+        .where(Space.id == space_id)
+        .values(not_accepting=not_accepting, updated_at=datetime.now(timezone.utc))
+    )
+    return await _update_space(db, space_id, stm)
+
+
 
 async def get_all_spaces_by_owner(
     db: AsyncSession, owner_id: UUID, page: int, page_size: int, *, listed_only: bool = False
@@ -212,6 +222,8 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
         return cached_result, len(cached_ids)
 
     # build condition for database query
+    if not filters.show_non_accepting:
+        conditions.append(Space.not_accepting.is_(False))
     if filters.keyword:
         pattern = f"%{filters.keyword}%"
         conditions.append(or_(

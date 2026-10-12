@@ -53,6 +53,10 @@ class Space(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
+    # Still listed, but new booking requests are refused.
+    not_accepting: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
     view_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")

@@ -212,6 +212,7 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
   "available_from": "2026-06-01",
   "available_to": "2026-08-15",
   "is_active": true,
+  "not_accepting": false,
   "expired_at": "2026-07-22T00:00:00Z",
   "view_count": 142,
   "is_saved": false,
@@ -266,12 +267,15 @@ Search/list with filters. **Cached in Redis.**
   | `price_type` | enum | |
   | `page` | int | default 1 |
   | `page_size` | int | default 20, cap 100 |
+  | `show_non_accepting` | bool | default `false`; `true` also returns spaces with `not_accepting = true` |
 - **Response `200`**
 ```json
 { "results": [ /* SpaceInfoResponse[] */ ], "total": 137, "page": 1, "page_size": 20 }
 ```
 - **Logic**
   - Only return `is_active = true` AND `expired_at > now()`.
+  - Also require `not_accepting = false` unless `show_non_accepting=true`. The flag is part of
+    the cache key, so the two variants are cached separately.
   - Sort by **relevance (date-match quality) then price**.
   - Cache: hash the normalized query → `search:{hash}` (TTL 5 min). Invalidate on any listing
     create/update/delete.
@@ -333,7 +337,7 @@ The caller's own listings, for managing them.
     "id": 1, "title": "...", "city": "Springfield", "price": 60.00,
     "price_type": "recurring_per_month", "thumbnail_url": "https://seaweedfs/.../1-thumb.jpg",
     "available_from": "2026-06-01", "available_to": "2026-08-15",
-    "is_active": true, "expired_at": "2026-07-22T00:00:00Z",
+    "is_active": true, "not_accepting": false, "expired_at": "2026-07-22T00:00:00Z",
     "view_count": 142, "updated_at": "2026-06-22T00:00:00Z"
   }]
 }
@@ -349,8 +353,27 @@ One owner's public listings.
 - **Response `200`:** `SpaceListReducedResponse` (same item shape as §3.7)
 - **Logic:** only `is_active = true` AND `expired_at > now()`; `total_count` and `total_pages`
   count only those. The owner's id list is cached and cleared whenever one of their listings
-  is created, updated, hidden, re-activated, or renewed.
+  is created, updated, hidden, re-activated, or renewed. Spaces with `not_accepting = true` are
+  still listed, carrying the flag.
 - **Errors:** `400` invalid UUID.
+
+### 3.9 `PATCH /spaces/{id}/accepting`
+Stop or resume taking new booking requests. The listing stays visible.
+
+- **Auth:** owner
+- **Request Body**
+
+```json
+{ "not_accepting": true }
+```
+
+- **Response `200`:** the updated `SpaceResponse`.
+- **Logic:** sets `spaces.not_accepting` and clears the listing's detail cache and the owner's
+  list cache. While it is `true`, `POST /bookings` for this space returns `400`, and search hides
+  the space unless `show_non_accepting=true`. Requests made before the flag was set can still be
+  accepted or declined.
+- **Errors:** `400` invalid body, `403` not the owner (also returned for an unknown space, like
+  `PUT /spaces/{id}`).
 
 > **Phase 2 — Map view.** `GET /spaces/map?bbox=w,s,e,n&<filters>` returns GeoJSON of listings
 > within the bounding box + a true total count, capped at ~200–300 markers with fuzzed
@@ -562,10 +585,12 @@ Request for a booking (with Redis availability lock to prevent double-booking).
   4. Release/rely on lock TTL once persisted.
   5. Renter request booking: `pending`
   6. Owner accept / decline: `accepted` / `declined`
-  7. Payment succeeded (Stripe or owner in-person receipt): `confirmed`
+  7. Payment succeeded (Stripe or owner in-person receipt): `confirmed`. Until payments exist,
+     the owner confirms with `PATCH /bookings/confirm` (§6.4.1).
   8. First day of the stay: `active` (nightly job, or same write as payment if `start_date` is already today)
   9. After rent ended: `completed`
-- **Errors:** `400` bad dates, `404` space, `409` unavailable/double-book.
+- **Errors:** `400` bad dates, `400 "Space is not accepting bookings"` when the space has
+  `not_accepting = true`, `404` space, `409` unavailable/double-book.
 
 ### 6.2 `GET /bookings/me`
 List the caller's bookings.
@@ -631,6 +656,22 @@ Take back the caller's own cancel request on a `confirmed` or `active` booking.
 ```
 
 * **Logic**: owner accept the booking request: mark booking as `accepted`. Dates are held; other users cannot book the same range. Payment has not happened yet.
+
+#### 6.4.1 `PATCH /bookings/confirm`
+Owner confirms an accepted booking. Stands in for the payment step until payments exist.
+
+- **Auth:** owner
+- **Request Body**
+
+```json
+{"booking_id": "uuid"}
+```
+
+- **Response `200`:** message "Booking confirmed", `BookingResponse` in `data`.
+- **Logic:** only `accepted` bookings. Sets `status = confirmed`, or `active` directly when
+  `start_date` is today or earlier, since there is no nightly job yet to move it later. The update
+  only applies while the status is still `accepted`, so it cannot overwrite a concurrent cancel.
+- **Errors:** `400 "Booking is not accepted"`, `403` not the owner, `404` booking not found.
 
 ### 6.5 `PATCH /bookings/decline`
 

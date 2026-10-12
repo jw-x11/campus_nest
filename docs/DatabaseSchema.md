@@ -96,6 +96,7 @@ Listings for storage spaces (closet, shelf, garage, basement, room) available to
 | `available_from` | date          | NO       | —                   |                                                             |
 | `available_to`   | date          | NO       | —                   |                                                             |
 | `is_active`      | boolean       | NO       | `true`              | Hide without deleting                                       |
+| `not_accepting`  | boolean       | NO       | `false`             | Still listed, but new booking requests are refused          |
 | `view_count`     | integer       | NO       | `0`                 | Denormalized total views; increment on each listing view  |
 | `created_at`     | timestamptz   | NO       | `now()`             |                                                             |
 | `updated_at`     | timestamptz   | NO       | `now()`             |                                                             |
@@ -118,6 +119,7 @@ CREATE TABLE spaces (
     available_from date          NOT NULL,
     available_to   date          NOT NULL,
     is_active      boolean       NOT NULL DEFAULT true,
+    not_accepting  boolean       NOT NULL DEFAULT false,
     view_count     integer       NOT NULL DEFAULT 0,
     created_at     timestamptz   NOT NULL DEFAULT now(),
     updated_at     timestamptz   NOT NULL DEFAULT now(),

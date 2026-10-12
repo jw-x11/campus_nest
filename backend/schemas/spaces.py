@@ -21,6 +21,10 @@ class SpaceInfoRequest(BaseModel):
     available_to: date
 
 
+class SpaceAcceptingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    not_accepting: bool
 
 
 class SpaceItem(BaseModel):
@@ -42,6 +46,7 @@ class SpaceItem(BaseModel):
     available_to: date
     # Defaulted so detail entries cached before these fields existed still validate.
     is_active: bool = True
+    not_accepting: bool = False
     expired_at: datetime | None = None
 
     view_count: int
@@ -69,6 +74,7 @@ class SpaceItemReduced(BaseModel):
     available_from: date
     available_to: date
     is_active: bool = True
+    not_accepting: bool = False
     expired_at: datetime | None = None
 
     view_count: int
@@ -92,6 +98,7 @@ class SpaceSearchQuery(BaseModel):
 
     sort_by: Annotated[Literal["location", "price", "post_date"] | None, Field(alias="sort")] = None # none means no sorting
     sort_order: Annotated[Literal["asc", "desc"] | None, Field(alias="order")] = None # none means the natural default for sort_by
+    show_non_accepting: bool = False # include spaces that are not taking new booking requests
 
 
 class SpaceListResponse(BaseModel):

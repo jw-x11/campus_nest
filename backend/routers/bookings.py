@@ -5,6 +5,7 @@ from schemas.users import UserInfoResponse
 from config.db_config import get_db
 from crud.bookings import (
     check_overlapping_booking,
+    confirm_booking,
     create_pending_booking,
     get_booking_by_id,
     get_bookings_list,
@@ -65,6 +66,8 @@ async def create_booking(
         raise HTTPException(status_code=404, detail="Space not found")
     if space.is_active is False:
         raise HTTPException(status_code=400, detail="Space is not active")
+    if space.not_accepting:
+        raise HTTPException(status_code=400, detail="Space is not accepting bookings")
 
     # check if booking for the same space and dates by the same user already exists
     if await check_overlapping_booking(db, user.id, request.space_id, request.start_date, request.end_date):
@@ -239,6 +242,30 @@ async def accept_booking(
         raise HTTPException(status_code=500, detail="Failed to accept booking")
     
     return success_response(message="Booking accepted successfully", data=None)
+
+
+
+
+# Owner confirms an accepted booking. Stands in for payment until payments exist.
+@api_bookings.patch("/confirm")
+async def confirm_accepted_booking(
+    body: BookingSpaceActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
+):
+    if not await verify_booking_owner(db, user.id, body.booking_id):
+        raise HTTPException(status_code=403, detail="Not Authorized to confirm this booking")
+
+    booking = await get_booking_by_id(db, body.booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status != "accepted":
+        raise HTTPException(status_code=400, detail="Booking is not accepted")
+
+    confirmed = await confirm_booking(db, body.booking_id, booking.start_date)
+    if confirmed is None:
+        raise HTTPException(status_code=400, detail="Booking is not accepted")
+    return success_response(message="Booking confirmed", data=BookingResponse.model_validate(confirmed))
 
 
 

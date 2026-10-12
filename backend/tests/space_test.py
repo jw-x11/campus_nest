@@ -30,9 +30,10 @@ class TestCreate:
         data = resp.json()["data"]
         assert set(data) == {
             "id", "title", "description", "address", "city", "postal_code", "latitude", "longitude",
-            "price", "price_type", "available_from", "available_to", "is_active", "expired_at", "view_count",
-            "images", "created_at", "updated_at",
+            "price", "price_type", "available_from", "available_to", "is_active", "not_accepting", "expired_at",
+            "view_count", "images", "created_at", "updated_at",
         }
+        assert data["not_accepting"] is False
         assert data["id"] >= 1
         assert data["title"] == "Attic"
         assert data["is_active"] is True
@@ -184,7 +185,7 @@ class TestSearch:
         await create_space(await register())
         [item] = (await search(client))["spaces"]
         assert set(item) == {"id", "title", "city", "price", "price_type", "thumbnail_url", "available_from",
-                             "available_to", "is_active", "expired_at", "view_count", "updated_at"}
+                             "available_to", "is_active", "not_accepting", "expired_at", "view_count", "updated_at"}
         assert "address" not in item
 
     @pytest.mark.parametrize(
@@ -349,6 +350,63 @@ class TestOwnerLists:
 
     async def test_spaces_from_owner_rejects_bad_uuid(self, client):
         assert (await client.get("/api/spaces/from/not-a-uuid")).status_code == 400
+
+
+async def set_not_accepting(client, space: dict, user, not_accepting: bool = True):
+    return await client.patch(f"/api/spaces/{space['id']}/accepting",
+                              json={"not_accepting": not_accepting}, headers=user.headers)
+
+
+class TestAccepting:
+    async def test_owner_toggles_flag(self, client, register, create_space):
+        owner = await register()
+        space = await create_space(owner)
+
+        resp = await set_not_accepting(client, space, owner)
+        assert resp.status_code == 200
+        assert resp.json()["data"]["not_accepting"] is True
+        assert (await client.get(f"/api/spaces/{space['id']}")).json()["data"]["not_accepting"] is True
+        [card] = (await client.get("/api/spaces/me", headers=owner.headers)).json()["data"]["spaces"]
+        assert card["not_accepting"] is True
+
+        resp = await set_not_accepting(client, space, owner, False)
+        assert resp.json()["data"]["not_accepting"] is False
+        assert (await client.get(f"/api/spaces/{space['id']}")).json()["data"]["not_accepting"] is False
+
+    async def test_other_user_is_forbidden(self, client, register, create_space):
+        space = await create_space(await register())
+        assert (await set_not_accepting(client, space, await register())).status_code == 403
+        assert (await client.get(f"/api/spaces/{space['id']}")).json()["data"]["not_accepting"] is False
+
+    async def test_unknown_space_is_forbidden(self, client, register):
+        assert (await set_not_accepting(client, {"id": 999}, await register())).status_code == 403
+
+    @pytest.mark.parametrize("body", [{}, {"not_accepting": True, "is_active": False}])
+    async def test_rejects_bad_body(self, client, register, create_space, body):
+        owner = await register()
+        space = await create_space(owner)
+        resp = await client.patch(f"/api/spaces/{space['id']}/accepting", json=body, headers=owner.headers)
+        assert resp.status_code == 400
+
+    async def test_search_hides_unless_requested(self, client, register, create_space):
+        owner = await register()
+        open_space, closed = await create_space(owner), await create_space(owner)
+        await set_not_accepting(client, closed, owner)
+
+        assert ids((await search(client))["spaces"]) == [open_space["id"]]
+        # Runs after the default search is cached, so this also checks the two are cached apart.
+        shown = await search(client, show_non_accepting="true")
+        assert sorted(ids(shown["spaces"])) == sorted([open_space["id"], closed["id"]])
+        assert {space["id"]: space["not_accepting"] for space in shown["spaces"]} == {
+            open_space["id"]: False, closed["id"]: True,
+        }
+
+    async def test_owner_public_list_still_shows_it(self, client, register, create_space):
+        owner = await register()
+        space = await create_space(owner)
+        await set_not_accepting(client, space, owner)
+        [card] = (await client.get(f"/api/spaces/from/{owner.id}")).json()["data"]["spaces"]
+        assert (card["id"], card["not_accepting"]) == (space["id"], True)
 
 
 class TestImages:

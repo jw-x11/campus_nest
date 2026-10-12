@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from config.db_config import SessionLocal
-from crud.bookings import check_overlapping_booking, create_pending_booking, request_cancellation
+from crud.bookings import check_overlapping_booking, confirm_booking, create_pending_booking, request_cancellation
 from models.bookings import Booking
 from schemas.bookings import BookingRequest
 
@@ -57,6 +57,14 @@ class TestCreateBooking:
                                  headers=parties.renter.headers)
         assert resp.status_code == 400
         assert resp.json()["message"] == "Space is not active"
+
+    async def test_not_accepting_space(self, client, parties):
+        await client.patch(f"/api/spaces/{parties.space['id']}/accepting", json={"not_accepting": True},
+                           headers=parties.owner.headers)
+        resp = await client.post("/api/bookings/", json=booking_body(parties.space["id"]),
+                                 headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Space is not accepting bookings"
 
     async def test_overlapping_booking(self, client, parties, make_booking):
         await make_booking(parties.space, parties.renter, parties.owner, start=START, end=END)
@@ -271,6 +279,57 @@ class TestAcceptDecline:
                                   headers=parties.owner.headers)
         assert resp.status_code == 200
         assert (await booking_row(booking_id))["status"] == new_status
+
+    async def test_accept_still_works_when_not_accepting(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        await client.patch(f"/api/spaces/{parties.space['id']}/accepting", json={"not_accepting": True},
+                           headers=parties.owner.headers)
+        resp = await client.patch("/api/bookings/accept", json={"booking_id": booking_id},
+                                  headers=parties.owner.headers)
+        assert resp.status_code == 200
+        assert (await booking_row(booking_id))["status"] == "accepted"
+
+
+class TestConfirm:
+    async def confirm(self, client, booking_id, user):
+        return await client.patch("/api/bookings/confirm", json={"booking_id": booking_id}, headers=user.headers)
+
+    async def test_future_stay_is_confirmed(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="accepted")
+        resp = await self.confirm(client, booking_id, parties.owner)
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Booking confirmed"
+        assert resp.json()["data"]["status"] == "confirmed"
+        assert (await booking_row(booking_id))["status"] == "confirmed"
+
+    @pytest.mark.parametrize("starts_in", [0, -3])
+    async def test_started_stay_goes_straight_to_active(self, client, parties, make_booking, booking_row, starts_in):
+        start = date.today() + timedelta(days=starts_in)
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="accepted",
+                                        start=start, end=start + timedelta(days=10))
+        resp = await self.confirm(client, booking_id, parties.owner)
+        assert resp.json()["data"]["status"] == "active"
+        assert (await booking_row(booking_id))["status"] == "active"
+
+    @pytest.mark.parametrize("status", ["pending", "confirmed", "cancelled"])
+    async def test_only_accepted(self, client, parties, make_booking, booking_row, status):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status=status)
+        resp = await self.confirm(client, booking_id, parties.owner)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Booking is not accepted"
+        assert (await booking_row(booking_id))["status"] == status
+
+    async def test_only_owner(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="accepted")
+        for user in (parties.renter, parties.stranger):
+            assert (await self.confirm(client, booking_id, user)).status_code == 403
+        assert (await booking_row(booking_id))["status"] == "accepted"
+
+    async def test_skips_booking_that_changed_after_it_was_read(self, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="cancelled")
+        async with SessionLocal() as db:
+            assert await confirm_booking(db, uuid.UUID(booking_id), START) is None
+        assert (await booking_row(booking_id))["status"] == "cancelled"
 
 
 class TestCancel:

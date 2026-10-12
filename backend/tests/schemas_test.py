@@ -104,6 +104,7 @@ class TestSpaceSchemas:
     def test_search_query_defaults(self):
         query = SpaceSearchQuery()
         assert (query.page, query.page_size, query.min_price) == (1, 25, 0)
+        assert query.show_non_accepting is False
 
     @pytest.mark.parametrize(
         "params", [{"unknown": "x"}, {"pg": 0}, {"pg-size": 101}, {"min": -1}, {"sort": "rating"}]

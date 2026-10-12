@@ -241,8 +241,24 @@ async def withdraw_cancellation(
     await db.refresh(booking)
     return booking
 
-# TODO: Add not_accepting to space db, not_accepting = true means the space is not accepting bookings
-# TODO: before payment is implemented, owner can set the booking to confirmed
+
+async def confirm_booking(db: AsyncSession, booking_id: UUID, start_date: date) -> Booking | None:
+    """Owner confirms an accepted booking until payments exist; it starts active if the stay has begun.
+
+    None when the booking is no longer accepted.
+    """
+    status = "active" if start_date <= date.today() else "confirmed"
+    stm = (
+        update(Booking)
+        .where(Booking.id == booking_id, Booking.status == "accepted")
+        .values(status=status)
+    )
+    result = await db.execute(stm)
+    await db.commit()
+    if result.rowcount == 0:
+        return None
+    return await db.get(Booking, booking_id, populate_existing=True)
+
 # TODO: nightly job check when the booking is has passed the start date, set the booking to active
 # TODO: nightly job check when the booking is has passed the end date, set the booking to completed
 # TODO: update booking detail also change the total price + overlap check

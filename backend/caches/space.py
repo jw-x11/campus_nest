@@ -71,6 +71,7 @@ def space_search_cache_key(filters: SpaceSearchQuery) -> str:
             "price_type",
             "min_price",
             "max_price",
+            "show_non_accepting",
         },
     )
     payload["keyword"] = _folded(payload["keyword"])
