@@ -250,3 +250,6 @@ async def post_space_images(
     return success_response(message="Images uploaded", data={"images": urls})
 
 
+# TODO: add is_full to table
+# TODO: Search query: add show_full to query
+# TODO: Search filter out is_full if show_full is False

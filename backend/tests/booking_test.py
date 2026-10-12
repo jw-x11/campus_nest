@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -6,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from config.db_config import SessionLocal
-from crud.bookings import check_overlapping_booking, create_pending_booking
+from crud.bookings import check_overlapping_booking, create_pending_booking, request_cancellation
+from models.bookings import Booking
 from schemas.bookings import BookingRequest
 
 pytestmark = pytest.mark.usefixtures("services")
@@ -288,9 +290,55 @@ class TestCancel:
         resp = await client.patch("/api/bookings/cancel", json={"booking_id": booking_id},
                                   headers=getattr(parties, who).headers)
         assert resp.status_code == 200
+        assert resp.json()["data"]["cancel_requested_by"] == who
+        assert resp.json()["data"]["status"] == status
         row = await booking_row(booking_id)
         assert row["cancel_requested_by"] == who
         assert row["status"] == status
+
+    @pytest.mark.parametrize("status", ["confirmed", "active"])
+    @pytest.mark.parametrize(("first", "second"), [("renter", "owner"), ("owner", "renter")])
+    async def test_both_parties_cancels(self, client, parties, make_booking, booking_row, status, first, second):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status=status)
+
+        waiting = await client.patch("/api/bookings/cancel", json={"booking_id": booking_id},
+                                     headers=getattr(parties, first).headers)
+        assert waiting.json()["message"] == f"Cancellation requested; waiting for the {second} to agree"
+        assert (await booking_row(booking_id))["status"] == status
+
+        agreed = await client.patch("/api/bookings/cancel", json={"booking_id": booking_id},
+                                    headers=getattr(parties, second).headers)
+        assert agreed.status_code == 200
+        assert agreed.json()["message"] == "Booking cancelled successfully"
+        assert agreed.json()["data"]["status"] == "cancelled"
+        assert (await booking_row(booking_id))["status"] == "cancelled"
+
+    async def test_request_waits_for_a_concurrent_one(self, parties, make_booking):
+        booking_id = uuid.UUID(await make_booking(parties.space, parties.renter, parties.owner, status="confirmed"))
+
+        async def renter_cancels():
+            async with SessionLocal() as db:
+                return await request_cancellation(db, booking_id, "renter")
+
+        async with SessionLocal() as owner_db:
+            booking = await owner_db.get(Booking, booking_id, with_for_update=True)
+            pending = asyncio.create_task(renter_cancels())
+            await asyncio.sleep(0.3)
+            assert not pending.done()
+            booking.cancel_requested_by = "owner"
+            await owner_db.commit()
+
+        booking = await asyncio.wait_for(pending, timeout=5)
+        assert booking.status == "cancelled"
+
+    async def test_same_party_twice_keeps_waiting(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="confirmed")
+        for _ in range(2):
+            resp = await client.patch("/api/bookings/cancel", json={"booking_id": booking_id},
+                                      headers=parties.renter.headers)
+            assert resp.status_code == 200
+        row = await booking_row(booking_id)
+        assert (row["status"], row["cancel_requested_by"]) == ("confirmed", "renter")
 
     @pytest.mark.parametrize("status", ["completed", "cancelled", "declined"])
     async def test_finished_booking_cannot_be_cancelled(self, client, parties, make_booking, status):
@@ -305,6 +353,56 @@ class TestCancel:
         resp = await client.patch("/api/bookings/cancel", json={"booking_id": booking_id},
                                   headers=parties.stranger.headers)
         assert resp.status_code == 403
+
+
+class TestWithdrawCancel:
+    @staticmethod
+    async def cancel(client, booking_id, user):
+        return await client.patch("/api/bookings/cancel", json={"booking_id": booking_id}, headers=user.headers)
+
+    @staticmethod
+    async def withdraw(client, booking_id, user):
+        return await client.patch("/api/bookings/cancel/withdraw", json={"booking_id": booking_id},
+                                  headers=user.headers)
+
+    @pytest.mark.parametrize(("who", "other"), [("renter", "owner"), ("owner", "renter")])
+    async def test_requester_withdraws(self, client, parties, make_booking, booking_row, who, other):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="active")
+        await self.cancel(client, booking_id, getattr(parties, who))
+
+        resp = await self.withdraw(client, booking_id, getattr(parties, who))
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Cancel request withdrawn"
+        assert resp.json()["data"]["cancel_requested_by"] is None
+        row = await booking_row(booking_id)
+        assert (row["status"], row["cancel_requested_by"]) == ("active", None)
+
+        # With the request gone, the other party's cancel starts a new request instead of cancelling.
+        await self.cancel(client, booking_id, getattr(parties, other))
+        row = await booking_row(booking_id)
+        assert (row["status"], row["cancel_requested_by"]) == ("active", other)
+
+    async def test_other_party_cannot_withdraw(self, client, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="confirmed")
+        await self.cancel(client, booking_id, parties.renter)
+
+        resp = await self.withdraw(client, booking_id, parties.owner)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "No cancel request to withdraw"
+        assert (await booking_row(booking_id))["cancel_requested_by"] == "renter"
+
+    async def test_nothing_to_withdraw(self, client, parties, make_booking):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="confirmed")
+        assert (await self.withdraw(client, booking_id, parties.renter)).status_code == 400
+
+    @pytest.mark.parametrize("status", ["pending", "cancelled", "completed"])
+    async def test_only_confirmed_or_active(self, client, parties, make_booking, status):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status=status)
+        assert (await self.withdraw(client, booking_id, parties.renter)).status_code == 400
+
+    async def test_stranger_is_forbidden(self, client, parties, make_booking):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="confirmed")
+        assert (await self.withdraw(client, booking_id, parties.stranger)).status_code == 403
 
 
 class TestSpecialDeal:

@@ -15,9 +15,11 @@ from crud.bookings import (
     verify_booking_owner,
     verify_booking_owner_or_renter,
     verify_booking_renter,
+    withdraw_cancellation,
 )
 from crud.spaces import get_space_record
 from fastapi import APIRouter, Depends, HTTPException, Query
+from models.bookings import Booking
 from models.users import User
 from schemas.bookings import (
     BookingRequest,
@@ -34,6 +36,11 @@ from utils.response import success_response
 # Router: /api/bookings
 
 api_bookings = APIRouter()
+
+
+def booking_role(user_id: UUID, booking: Booking) -> Literal["renter", "owner"]:
+    """The caller's side of a booking they are already verified to be part of."""
+    return "renter" if user_id == booking.renter_id else "owner"
 
 
 @api_bookings.get("/status")
@@ -170,19 +177,40 @@ async def cancel_booking(
             raise HTTPException(status_code=500, detail="Failed to cancel booking")
         
     elif booking.status in ["confirmed", "active"]:
-        if user.id == booking.renter_id:
-            result = await request_cancellation(db, body.booking_id, "renter")
-        elif user.id == booking.owner_id:
-            result = await request_cancellation(db, body.booking_id, "owner")
-        else:
-            raise HTTPException(status_code=400, detail="Not Authorized to cancel this booking")
-        if not result:
-            raise HTTPException(status_code=500, detail="Failed to cancel booking")
+        role = booking_role(user.id, booking)
+        updated = await request_cancellation(db, body.booking_id, role)
+        if updated is None:
+            raise HTTPException(status_code=400, detail="Cancellation is not allowed")
+        data = BookingResponse.model_validate(updated)
+        if updated.status != "cancelled":
+            other = "owner" if role == "renter" else "renter"
+            return success_response(message=f"Cancellation requested; waiting for the {other} to agree", data=data)
+        return success_response(message="Booking cancelled successfully", data=data)
 
     else:
         raise HTTPException(status_code=400, detail="Cancellation is not allowed")
 
     return success_response(message="Booking cancelled successfully", data=None)
+
+
+# Take back the caller's own cancel request on a confirmed or active booking.
+@api_bookings.patch("/cancel/withdraw")
+async def withdraw_cancel_request(
+    body: BookingSpaceActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
+):
+    if not await verify_booking_owner_or_renter(db, user.id, body.booking_id):
+        raise HTTPException(status_code=403, detail="Not Authorized to change this booking")
+
+    booking = await get_booking_by_id(db, body.booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    updated = await withdraw_cancellation(db, body.booking_id, booking_role(user.id, booking))
+    if updated is None:
+        raise HTTPException(status_code=400, detail="No cancel request to withdraw")
+    return success_response(message="Cancel request withdrawn", data=BookingResponse.model_validate(updated))
 
 
 

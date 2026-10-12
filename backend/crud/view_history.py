@@ -1,6 +1,6 @@
 import base64
 import binascii
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID
 
 from caches.view_history import (
@@ -15,7 +15,7 @@ from caches.view_history import (
 from crud.spaces import hydrate_space_list
 from models.view_history import ViewHistory
 from schemas.spaces import SpaceItem
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -91,7 +91,8 @@ async def add_or_update_view_history(db: AsyncSession, user_id: UUID, space_id: 
     record = result.scalar_one_or_none()
 
     if record: 
-        record.viewed_at = datetime.now(tz=timezone.utc)
+        # The database clock, like the insert default, so new and repeat views order consistently.
+        record.viewed_at = func.now()
     else:
         # Only a new row can push the history past the cap, so trim in the same transaction.
         record = ViewHistory(user_id=user_id, space_id=space_id)

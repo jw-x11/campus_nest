@@ -582,10 +582,15 @@ Cancel a booking.
 - **Request Body**
 
 ```json
-{"space_id": 1}
+{"booking_id": "uuid"}
 ```
 
-- **Response `200`:** `BookingResponse`. Status is `cancelled` when cancel takes effect; otherwise status is unchanged and `cancel_requested_by` is the caller's role.
+- **Response `200`**
+  - `pending` or `accepted`: message "Booking cancelled successfully", `data: null`.
+  - `confirmed` or `active`: `BookingResponse` in `data`. When the cancel takes effect, the
+    message is "Booking cancelled successfully" and status is `cancelled`. Otherwise the message
+    is "Cancellation requested; waiting for the {owner|renter} to agree", status is unchanged,
+    and `cancel_requested_by` is the caller's role.
 - **Logic**
   1. Caller must be the renter or the listing owner.
   2. `pending` or `accepted`: set `status = cancelled` immediately (one party is enough; payment has not happened).
@@ -593,7 +598,27 @@ Cancel a booking.
      - If `cancel_requested_by` is `null`, set it to the caller's role (`renter` or `owner`) and leave status unchanged.
      - If it is already the other party, set `status = cancelled`.
      - If it is already this party, no-op (still waiting).
+     - The booking row is locked while this is decided, so simultaneous requests from both parties still cancel.
   4. `cancelled`, `declined`, or `completed`: `400`.
+- **Errors:** `400` cancellation not allowed, `403` not a party to the booking, `404` booking not found.
+
+#### 6.3.1 `PATCH /bookings/cancel/withdraw`
+Take back the caller's own cancel request on a `confirmed` or `active` booking.
+
+- **Auth:** renter or listing owner of the booking
+- **Request Body**
+
+```json
+{"booking_id": "uuid"}
+```
+
+- **Response `200`:** message "Cancel request withdrawn", `BookingResponse` in `data` with `cancel_requested_by: null`.
+- **Logic:** only the party who asked can withdraw. The other party declines a cancel just by
+  not agreeing, so they cannot clear it. After a withdrawal, a cancel by either party starts a
+  new request.
+- **Errors:** `400 "No cancel request to withdraw"` (no request, the request is the other
+  party's, or the booking is not `confirmed`/`active`), `403` not a party to the booking,
+  `404` booking not found.
 
 ### 6.4 `PATCH /bookings/accept`
 

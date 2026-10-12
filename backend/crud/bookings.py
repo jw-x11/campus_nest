@@ -202,10 +202,54 @@ async def set_booking_status(
     await db.commit()
     return result.rowcount != 0
 
+async def request_cancellation(
+    db: AsyncSession, booking_id: UUID, requested_by: Literal["renter", "owner"]
+) -> Booking | None:
+    """Record one party's cancel request; cancel once the other party has already asked.
 
-async def request_cancellation(db: AsyncSession, booking_id: UUID, requested_by: Literal["renter", "owner"]) -> bool:
-    stm = update(Booking).where(Booking.id == booking_id).values(cancel_requested_by=requested_by)
-    result = await db.execute(stm)
+    None when the booking is no longer confirmed or active.
+    """
+    # The row lock makes simultaneous requests from both parties queue up instead of
+    # each overwriting the other's request.
+    booking = await db.get(Booking, booking_id, with_for_update=True, populate_existing=True)
+    if booking is None or booking.status not in ("confirmed", "active"):
+        await db.rollback()
+        return None
+    if booking.cancel_requested_by not in (None, requested_by):
+        booking.status = "cancelled"
+    else:
+        booking.cancel_requested_by = requested_by
     await db.commit()
-    return result.rowcount != 0
+    await db.refresh(booking)
+    return booking
 
+
+async def withdraw_cancellation(
+    db: AsyncSession, booking_id: UUID, requested_by: Literal["renter", "owner"]
+) -> Booking | None:
+    """Clear this party's own pending cancel request. None if they have none to take back."""
+    booking = await db.get(Booking, booking_id, with_for_update=True, populate_existing=True)
+    if (
+        booking is None
+        or booking.status not in ("confirmed", "active")
+        or booking.cancel_requested_by != requested_by
+    ):
+        await db.rollback()
+        return None
+    booking.cancel_requested_by = None
+    await db.commit()
+    await db.refresh(booking)
+    return booking
+
+# TODO: Add not_accepting to space db, not_accepting = true means the space is not accepting bookings
+# TODO: before payment is implemented, owner can set the booking to confirmed
+# TODO: nightly job check when the booking is has passed the start date, set the booking to active
+# TODO: nightly job check when the booking is has passed the end date, set the booking to completed
+# TODO: update booking detail also change the total price + overlap check
+# TODO: when update booking, make date change and change status to pending a transaction. Special deal stays
+# TODO: Create booking check expired_at
+# TODO: Create booking check if date is outside of space's availability
+# TODO: update booking check if date is outside of space's availability
+# TODO: Owner cannot book own space
+# TODO:  Making each update conditional on the expected current status (fix for bug 7)
+# TODO: Test these new changes
