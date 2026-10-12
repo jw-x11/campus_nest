@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Literal, NamedTuple
@@ -187,23 +188,37 @@ async def verify_booking_renter(db: AsyncSession, user_id: UUID, booking_id: UUI
 async def set_special_deal(
     db: AsyncSession, booking_id: UUID, price: Decimal
 ) -> bool:
-
-    stm = update(Booking).where(Booking.id == booking_id).values(special_deal=price) # special deal overwrites the original price
+    """False when the booking is no longer accepted."""
+    stm = (
+        update(Booking)
+        .where(Booking.id == booking_id, Booking.status == "accepted")
+        .values(special_deal=price)  # special deal overwrites the original price
+    )
     result = await db.execute(stm)
     await db.commit()
     return result.rowcount != 0
 
 
+BookingStatus = Literal["pending", "accepted", "confirmed", "active", "cancelled", "completed", "declined"]
 
 
 async def set_booking_status(
     db: AsyncSession,
     booking_id: UUID,
-    status: Literal[
-        "pending", "accepted", "confirmed", "active", "cancelled", "completed", "declined"
-    ],
+    status: BookingStatus,
+    *,
+    from_statuses: Sequence[BookingStatus],
 ) -> bool:
-    stm = update(Booking).where(Booking.id == booking_id).values(status=status)
+    """Move to status only if the booking is still in one of from_statuses.
+
+    Required so a status read earlier in the request cannot be overwritten by a concurrent change.
+    False when the booking is missing or has already moved on.
+    """
+    stm = (
+        update(Booking)
+        .where(Booking.id == booking_id, Booking.status.in_(from_statuses))
+        .values(status=status)
+    )
     result = await db.execute(stm)
     await db.commit()
     return result.rowcount != 0
@@ -298,5 +313,4 @@ async def advance_booking_statuses(db: AsyncSession, today: date | None = None) 
     await db.commit()
     return StatusChanges(cancelled.rowcount, started.rowcount, completed.rowcount)
 
-# TODO: Two actions at the same moment can clash. Every action reads the status and then writes it in a separate step. For example, if the renter cancels while the owner accepts, the last write wins, and an accept could overwrite the cancel. Making each update conditional on the expected current status (for example, update only WHERE status = 'pending') would fix this.
 # TODO: Test these new changes

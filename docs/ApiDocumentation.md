@@ -547,6 +547,7 @@ Clear the caller's entire history.
 Router file: `backend/routers/bookings.py`.
 **States:** `pending` → `accepted` → `confirmed` → `active` → `completed`, plus terminals `cancelled` | `declined`.
 DB enum: `pending | accepted | confirmed | active | cancelled | completed | declined`.
+Every status change (and the special deal) is applied only if the booking is still in the status the endpoint requires, checked in the same `UPDATE`. If another action changed it first (for example the renter cancels while the owner accepts), nothing is written and the endpoint returns `400`.
 A background job (`backend/jobs/booking_status.py`) runs at startup and then every hour, in one transaction per run:
 - `pending` or `accepted` with `start_date` before today → `cancelled` (the request was never confirmed in time; the start day itself is left for the owner to accept or confirm).
 - `confirmed` with `start_date` today or earlier → `active`.

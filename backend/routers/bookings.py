@@ -200,9 +200,9 @@ async def cancel_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
 
     if booking.status in ["pending", "accepted"]:
-        result = await set_booking_status(db, body.booking_id, "cancelled")
-        if not result:
-            raise HTTPException(status_code=500, detail="Failed to cancel booking")
+        # it may have just been confirmed, where the two-party cancel applies instead
+        if not await set_booking_status(db, body.booking_id, "cancelled", from_statuses=["pending", "accepted"]):
+            raise HTTPException(status_code=400, detail="Booking status changed; try again")
         
     elif booking.status in ["confirmed", "active"]:
         role = booking_role(user.id, booking)
@@ -262,9 +262,8 @@ async def accept_booking(
     if booking.status != "pending":
         raise HTTPException(status_code=400, detail="Booking is not pending")
 
-    result = await set_booking_status(db, body.booking_id, "accepted")
-    if not result:
-        raise HTTPException(status_code=500, detail="Failed to accept booking")
+    if not await set_booking_status(db, body.booking_id, "accepted", from_statuses=["pending"]):
+        raise HTTPException(status_code=400, detail="Booking is not pending")
     
     return success_response(message="Booking accepted successfully", data=None)
 
@@ -314,9 +313,8 @@ async def decline_booking(
         raise HTTPException(status_code=400, detail="Booking is not pending")
 
 
-    result = await set_booking_status(db, body.booking_id, "declined")
-    if not result:
-        raise HTTPException(status_code=500, detail="Failed to decline booking")
+    if not await set_booking_status(db, body.booking_id, "declined", from_statuses=["pending"]):
+        raise HTTPException(status_code=400, detail="Booking is not pending")
     
     return success_response(message="Booking declined successfully", data=None)
 
@@ -343,8 +341,7 @@ async def special_deal(
         raise HTTPException(status_code=400, detail="Booking is not accepted")
 
 
-    result = await set_special_deal(db, body.booking_id, body.price)
-    if not result:
-        raise HTTPException(status_code=500, detail="Failed to set special deal")
+    if not await set_special_deal(db, body.booking_id, body.price):
+        raise HTTPException(status_code=400, detail="Booking is not accepted")
     
     return success_response(message="Special deal set successfully", data=None)

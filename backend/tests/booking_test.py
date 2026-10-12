@@ -15,7 +15,10 @@ from crud.bookings import (
     compute_total_price,
     confirm_booking,
     create_pending_booking,
+    get_booking_by_id,
     request_cancellation,
+    set_booking_status,
+    set_special_deal,
     update_booking_details,
 )
 from jobs.booking_status import advance_booking_statuses_now, run_booking_status_job
@@ -364,6 +367,56 @@ class TestAcceptDecline:
                                   headers=parties.owner.headers)
         assert resp.status_code == 200
         assert (await booking_row(booking_id))["status"] == "accepted"
+
+
+class TestStaleReads:
+    """Another action changes the booking between the handler's status check and its write."""
+
+    @pytest.fixture
+    def stale_status(self, monkeypatch):
+        async def _stale(status: str) -> None:
+            async def stale_get(db, booking_id):
+                real = await get_booking_by_id(db, booking_id)
+                # a detached copy, so the old status is never flushed back to the row
+                fields = {column.key: getattr(real, column.key) for column in Booking.__table__.columns}
+                return SimpleNamespace(**(fields | {"status": status}))
+
+            monkeypatch.setattr("routers.bookings.get_booking_by_id", stale_get)
+
+        return _stale
+
+    async def test_set_status_skips_booking_that_moved_on(self, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="cancelled")
+        async with SessionLocal() as db:
+            assert await set_booking_status(db, uuid.UUID(booking_id), "accepted", from_statuses=["pending"]) is False
+        assert (await booking_row(booking_id))["status"] == "cancelled"
+
+    async def test_special_deal_skips_booking_that_is_not_accepted(self, parties, make_booking, booking_row):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner)
+        async with SessionLocal() as db:
+            assert await set_special_deal(db, uuid.UUID(booking_id), Decimal("10")) is False
+        assert (await booking_row(booking_id))["special_deal"] == 0
+
+    async def test_accept_does_not_overwrite_a_cancel(self, client, parties, make_booking, booking_row,
+                                                      stale_status):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="cancelled")
+        await stale_status("pending")
+        resp = await client.patch("/api/bookings/accept", json={"booking_id": booking_id},
+                                  headers=parties.owner.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Booking is not pending"
+        assert (await booking_row(booking_id))["status"] == "cancelled"
+
+    async def test_fast_cancel_does_not_skip_two_party_cancel(self, client, parties, make_booking, booking_row,
+                                                              stale_status):
+        booking_id = await make_booking(parties.space, parties.renter, parties.owner, status="confirmed")
+        await stale_status("pending")
+        resp = await client.patch("/api/bookings/cancel", json={"booking_id": booking_id},
+                                  headers=parties.renter.headers)
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "Booking status changed; try again"
+        row = await booking_row(booking_id)
+        assert (row["status"], row["cancel_requested_by"]) == ("confirmed", None)
 
 
 class TestConfirm:
