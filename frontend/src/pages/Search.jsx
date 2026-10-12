@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { SearchIcon } from '../components/icons.jsx';
-import { ResultRow } from '../components/cards.jsx';
-import { Annotation, PageStatus } from '../components/ui.jsx';
-import { useApp } from '../context/AppContext.jsx';
+import { SpaceCard } from '../components/cards.jsx';
+import { Field, EmptyState, LoadingState, ErrorState } from '../components/ui.jsx';
 import { searchSpaces } from '../api.js';
 
 const SORTS = [
@@ -13,285 +12,299 @@ const SORTS = [
 ];
 
 const PRICE_TYPES = [
-  { label: 'Any', key: '' },
-  { label: 'Monthly', key: 'recurring_per_month' },
-  { label: 'Weekly', key: 'recurring_per_week' },
-  { label: 'One-time', key: 'single' },
+  { label: 'Any price', value: '' },
+  { label: 'Monthly', value: 'recurring_per_month' },
+  { label: 'Weekly', value: 'recurring_per_week' },
+  { label: 'One-time', value: 'single' },
 ];
 
-const PAGE_SIZE = 25;
-const SLIDER_MAX = 200;
+const PAGE_SIZE = 12;
 
-const DEFAULT_QUERY = {
-  keyword: '',
-  city: '',
-  priceType: '',
-  maxPrice: SLIDER_MAX,
-  availableFrom: '',
-  availableTo: '',
-  sort: SORTS[0],
-};
-
-function CheckRow({ option, onToggle }) {
-  return (
-    <label
-      className="clickable"
-      onClick={onToggle}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14 }}
-    >
-      <span
-        style={{
-          width: 18,
-          height: 18,
-          border: '1.5px solid var(--ink)',
-          borderRadius: 5,
-          display: 'grid',
-          placeItems: 'center',
-          background: option.active ? 'var(--accent)' : '#fff',
-          fontSize: 12,
-        }}
-      >
-        {option.active ? '✓' : ''}
-      </span>
-      {option.label}
-    </label>
-  );
+// Read initial search state from the URL so Back / shared links restore it.
+function readFromParams(params) {
+  const sort =
+    SORTS.find((s) => s.sortBy === params.get('sort') && s.sortOrder === params.get('order')) ||
+    SORTS[0];
+  return {
+    draft: {
+      keyword: params.get('kw') || '',
+      city: params.get('city') || '',
+      postalCode: params.get('pc') || '',
+      priceType: params.get('type') || '',
+      minPrice: params.get('min') || '',
+      maxPrice: params.get('max') || '',
+      availableFrom: params.get('from') || '',
+      availableTo: params.get('to') || '',
+      sort,
+    },
+    page: Math.max(1, Number(params.get('pg')) || 1),
+  };
 }
 
-function toSearchParams(query, page) {
-  return {
-    keyword: query.keyword,
-    city: query.city,
-    priceType: query.priceType || undefined,
-    maxPrice: query.maxPrice >= SLIDER_MAX ? undefined : query.maxPrice,
-    availableFrom: query.availableFrom || undefined,
-    availableTo: query.availableTo || undefined,
-    sortBy: query.sort.sortBy,
-    sortOrder: query.sort.sortOrder,
-    page,
-    pageSize: PAGE_SIZE,
-  };
+function toParams(query, page) {
+  const p = {};
+  if (query.keyword) p.kw = query.keyword;
+  if (query.city) p.city = query.city;
+  if (query.postalCode) p.pc = query.postalCode;
+  if (query.priceType) p.type = query.priceType;
+  if (query.minPrice) p.min = query.minPrice;
+  if (query.maxPrice) p.max = query.maxPrice;
+  if (query.availableFrom) p.from = query.availableFrom;
+  if (query.availableTo) p.to = query.availableTo;
+  if (query.sort.label !== SORTS[0].label) {
+    p.sort = query.sort.sortBy;
+    p.order = query.sort.sortOrder;
+  }
+  if (page > 1) p.pg = String(page);
+  return p;
+}
+
+// Compact page list: [1, …, window around current, …, last]
+function pageNumbers(page, totalPages) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+  const window = [page - 1, page, page + 1].filter((p) => p > 1 && p < totalPages);
+  const pages = [1, ...window, totalPages];
+  const out = [];
+  let prev = 0;
+  for (const p of [...new Set(pages)].sort((a, b) => a - b)) {
+    if (p - prev > 1) out.push('…');
+    out.push(p);
+    prev = p;
+  }
+  return out;
 }
 
 export default function Search() {
-  const { showNotes } = useApp();
-  const navigate = useNavigate();
-  const [draft, setDraft] = useState(DEFAULT_QUERY);
-  const [query, setQuery] = useState(DEFAULT_QUERY);
-  const [page, setPage] = useState(1);
+  const [params, setParams] = useSearchParams();
+  const [initial] = useState(() => readFromParams(params));
+  const [draft, setDraft] = useState(initial.draft);
+  const [query, setQuery] = useState(initial.draft);
+  const [page, setPage] = useState(initial.page);
   const [results, setResults] = useState([]);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [totalPages, setTotalPages] = useState(0);
+  const [state, setState] = useState('loading');
 
-  const patchDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }));
+  const patch = (p) => setDraft((d) => ({ ...d, ...p }));
 
-  const runSearch = (nextQuery = draft) => {
-    setQuery(nextQuery);
-    setPage(1);
-  };
-
-  const clearAll = () => {
-    setDraft(DEFAULT_QUERY);
-  };
+  // Keep the URL in sync (replace, not push) so Back from a listing
+  // restores this exact search, and links are shareable.
+  useEffect(() => {
+    setParams(toParams(query, page), { replace: true });
+  }, [query, page, setParams]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    searchSpaces(toSearchParams(query, page))
+    setState('loading');
+    searchSpaces({
+      keyword: query.keyword || undefined,
+      city: query.city || undefined,
+      postalCode: query.postalCode || undefined,
+      priceType: query.priceType || undefined,
+      minPrice: query.minPrice || undefined,
+      maxPrice: query.maxPrice || undefined,
+      availableFrom: query.availableFrom || undefined,
+      availableTo: query.availableTo || undefined,
+      sortBy: query.sort.sortBy,
+      sortOrder: query.sort.sortOrder,
+      page,
+      pageSize: PAGE_SIZE,
+    })
       .then((data) => {
         if (cancelled) return;
-        setResults((prev) => (page === 1 ? data.spaces : [...prev, ...data.spaces]));
+        setResults(data.spaces);
         setTotal(data.total);
-        setHasMore(data.hasMore);
-        setError('');
+        setTotalPages(data.totalPages);
+        setState('ready');
       })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err.message || 'Could not load spaces');
-        if (page === 1) setResults([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      .catch(() => {
+        if (!cancelled) {
+          if (page === 1) setResults([]);
+          setState('error');
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [query, page]);
 
+  const submit = (e) => {
+    e?.preventDefault();
+    setQuery(draft);
+    setPage(1);
+  };
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (query.city) n++;
+    if (query.postalCode) n++;
+    if (query.priceType) n++;
+    if (query.minPrice || query.maxPrice) n++;
+    if (query.availableFrom || query.availableTo) n++;
+    return n;
+  }, [query]);
+
   return (
-    <div className="page">
-      <div className="wire-card" style={{ borderRadius: 5 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            padding: '14px 24px',
-            borderBottom: '2px solid var(--ink)',
-            background: 'var(--tint-2)',
-            flexWrap: 'wrap',
-          }}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              runSearch();
-            }}
-            className="field"
-            style={{ flex: '1 1 280px', borderWidth: 1.5 }}
-          >
-            <SearchIcon size={16} />
+    <div className="page-wide mx-auto w-full max-w-[1320px] px-4 pb-16 pt-6 sm:px-5">
+      <div className="card overflow-hidden">
+        {/* toolbar */}
+        <div className="flex flex-wrap items-center gap-3 border-b border-stone-100 px-4 py-3 sm:px-5">
+          <form onSubmit={submit} className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="text-stone-400"><SearchIcon size={16} /></span>
             <input
               value={draft.keyword}
-              onChange={(e) => patchDraft({ keyword: e.target.value })}
-              placeholder="Search by area, title, or keyword…"
-              style={{ border: 'none', outline: 'none', flex: 1, background: 'transparent', fontSize: 14 }}
+              onChange={(e) => patch({ keyword: e.target.value })}
+              placeholder="Search by title or keyword…"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none"
             />
-            <button type="submit" className="chip btn-sm is-active">
-              Search
-            </button>
+            <button className="btn btn-sm btn-dark" type="submit">Search</button>
           </form>
-          <span className="mono" style={{ fontSize: 13, color: 'var(--muted-2)' }}>
-            <b style={{ color: 'var(--ink)' }}>{results.length}</b> / {total} spaces
+          <span className="hidden font-mono text-xs text-stone-400 sm:block">
+            {totalPages > 0 ? (
+              <>Page <b className="text-stone-800">{page}</b> of <b className="text-stone-800">{totalPages}</b> · {total} spaces</>
+            ) : (
+              <><b className="text-stone-800">{total}</b> spaces</>
+            )}
           </span>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div className="flex gap-1.5">
             {SORTS.map((s) => (
               <button
                 key={s.label}
                 type="button"
-                className={`chip btn-sm ${query.sort.label === s.label ? 'is-dark' : ''}`}
                 onClick={() => {
                   const next = { ...draft, sort: s };
                   setDraft(next);
-                  runSearch(next);
+                  setQuery(next);
+                  setPage(1);
                 }}
+                className={`rounded-full px-3 py-1.5 text-[12.5px] font-medium transition ${
+                  query.sort.label === s.label
+                    ? 'bg-[#2b2b2b] text-white'
+                    : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
+                }`}
               >
                 {s.label}
               </button>
             ))}
-          </div>
-          <div style={{ display: 'flex', border: '1.5px solid var(--ink)', borderRadius: 9, overflow: 'hidden', fontSize: 13 }}>
-            <span style={{ padding: '6px 13px', background: 'var(--accent)' }}>List</span>
-            <button
-              type="button"
-              onClick={() => navigate('/map')}
-              style={{ padding: '6px 13px', border: 'none', borderLeft: '1.5px solid var(--ink)', background: '#fff', cursor: 'pointer' }}
-            >
+            <Link to="/map" className="rounded-full bg-[#ffd22e] px-3 py-1.5 text-[12.5px] font-semibold">
               Map
-            </button>
+            </Link>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'flex-start' }}>
-          <aside
-            style={{
-              flex: 'none',
-              width: 262,
-              borderRight: '2px solid var(--ink)',
-              padding: '22px 22px 40px',
-              alignSelf: 'stretch',
-            }}
-          >
-            <div className="section-head" style={{ marginBottom: 18 }}>
-              <span style={{ fontSize: 17 }}>Filters</span>
+        <div className="flex flex-col lg:flex-row">
+          {/* filters */}
+          <aside className="w-full flex-none border-b border-stone-100 p-5 lg:w-64 lg:border-b-0 lg:border-r">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-semibold">Filters {activeFilterCount > 0 && (
+                <span className="ml-1 rounded-full bg-stone-100 px-2 py-0.5 font-mono text-[11px]">{activeFilterCount}</span>
+              )}</h2>
               <button
                 type="button"
-                className="mono clickable"
-                onClick={clearAll}
-                style={{ fontSize: 13, color: 'var(--rust)', background: 'none', border: 'none' }}
+                className="text-[13px] text-stone-400 hover:text-stone-700"
+                onClick={() => {
+                  const cleared = {
+                    keyword: '', city: '', postalCode: '', priceType: '',
+                    minPrice: '', maxPrice: '', availableFrom: '', availableTo: '', sort: SORTS[0],
+                  };
+                  setDraft(cleared);
+                  setQuery(cleared);
+                  setPage(1);
+                }}
               >
                 Clear all
               </button>
             </div>
-
-            <div className="label" style={{ marginBottom: 11 }}>CITY</div>
-            <input
-              className="field"
-              value={draft.city}
-              onChange={(e) => patchDraft({ city: e.target.value })}
-              placeholder="Any city"
-              style={{ fontSize: 14, padding: '9px 12px' }}
-            />
-
-            <div className="label" style={{ margin: '24px 0 11px' }}>PRICE TYPE</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-              {PRICE_TYPES.map((o) => (
-                <CheckRow
-                  key={o.label}
-                  option={{ label: o.label, active: draft.priceType === o.key }}
-                  onToggle={() => patchDraft({ priceType: o.key })}
-                />
-              ))}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+              <Field label="City">
+                <input className="input" value={draft.city} onChange={(e) => patch({ city: e.target.value })} placeholder="Any city" />
+              </Field>
+              <Field label="Postal code">
+                <input className="input" value={draft.postalCode} onChange={(e) => patch({ postalCode: e.target.value })} placeholder="Any" />
+              </Field>
+              <Field label="Price type">
+                <select className="input" value={draft.priceType} onChange={(e) => patch({ priceType: e.target.value })}>
+                  {PRICE_TYPES.map((o) => (
+                    <option key={o.label} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <div className="col-span-2 lg:col-span-1">
+                <Field label="Price range (USD)">
+                  <div className="flex items-center gap-2">
+                    <input type="number" min="0" className="input" placeholder="Min" value={draft.minPrice} onChange={(e) => patch({ minPrice: e.target.value })} />
+                    <span className="text-stone-300">–</span>
+                    <input type="number" min="0" className="input" placeholder="Max" value={draft.maxPrice} onChange={(e) => patch({ maxPrice: e.target.value })} />
+                  </div>
+                </Field>
+              </div>
+              <Field label="Available from">
+                <input type="date" className="input" value={draft.availableFrom} onChange={(e) => patch({ availableFrom: e.target.value })} />
+              </Field>
+              <Field label="Available to">
+                <input type="date" className="input" value={draft.availableTo} onChange={(e) => patch({ availableTo: e.target.value })} />
+              </Field>
             </div>
-
-            <div className="label" style={{ margin: '24px 0 12px' }}>
-              MAX PRICE · {draft.maxPrice >= SLIDER_MAX ? 'any' : `$${draft.maxPrice}`}
-            </div>
-            <input
-              type="range"
-              min={10}
-              max={SLIDER_MAX}
-              value={draft.maxPrice}
-              onChange={(e) => patchDraft({ maxPrice: Number(e.target.value) })}
-              style={{ width: '100%', accentColor: 'var(--ink)' }}
-            />
-            <div
-              className="mono"
-              style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--label)', marginTop: 7 }}
-            >
-              <span>$10</span>
-              <span>$200+</span>
-            </div>
-
-            <div className="label" style={{ margin: '24px 0 11px' }}>AVAILABLE</div>
-            <input
-              type="date"
-              className="field"
-              value={draft.availableFrom}
-              onChange={(e) => patchDraft({ availableFrom: e.target.value })}
-              style={{ fontSize: 13, padding: '9px 12px', marginBottom: 8 }}
-            />
-            <input
-              type="date"
-              className="field"
-              value={draft.availableTo}
-              onChange={(e) => patchDraft({ availableTo: e.target.value })}
-              style={{ fontSize: 13, padding: '9px 12px' }}
-            />
-
-            <button
-              type="button"
-              className="btn btn-primary btn-block"
-              style={{ marginTop: 22 }}
-              onClick={() => runSearch()}
-            >
-              Search
+            <button className="btn btn-primary btn-block mt-4" onClick={() => submit()} type="button">
+              Apply filters
             </button>
-
-            {showNotes && (
-              <Annotation style={{ marginTop: 24 }}>
-                Editing filters stays local. Search (or Enter) sends GET /spaces/all with kw, city, price-type, max, from, to, sort.
-              </Annotation>
-            )}
           </aside>
 
-          <div style={{ flex: 1, minWidth: 0, padding: '6px 0 14px' }}>
-            {error && <PageStatus style={{ color: 'var(--rust)' }}>{error}</PageStatus>}
-            {!error && !loading && results.length === 0 && (
-              <PageStatus>No spaces match these filters.</PageStatus>
+          {/* results */}
+          <div className="min-w-0 flex-1 p-4 sm:p-5">
+            {state === 'loading' && <LoadingState label="Searching spaces…" />}
+            {state === 'error' && <ErrorState message="Could not load spaces." onRetry={() => submit()} />}
+            {state === 'ready' && results.length === 0 && (
+              <EmptyState
+                title="No spaces match these filters"
+                body="Try a different city, wider dates, or a higher max price."
+              />
             )}
-            {results.map((item) => (
-              <ResultRow key={item.id} item={item} />
-            ))}
-            {loading && <PageStatus>{page === 1 ? 'Loading spaces…' : 'Loading more…'}</PageStatus>}
-            {!loading && hasMore && (
-              <div style={{ padding: 18, display: 'flex', justifyContent: 'center' }}>
-                <button type="button" className="btn" onClick={() => setPage((p) => p + 1)}>
-                  Load more
-                </button>
+            {state === 'ready' && results.length > 0 && (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {results.map((item) => (
+                  <SpaceCard key={item.id} item={item} />
+                ))}
               </div>
+            )}
+            {state === 'ready' && totalPages > 1 && (
+              <nav aria-label="Pagination" className="flex items-center justify-center gap-1.5 pt-6">
+                <button
+                  className="btn btn-sm"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  type="button"
+                >
+                  ← Prev
+                </button>
+                {pageNumbers(page, totalPages).map((p, i) =>
+                  p === '…' ? (
+                    <span key={`gap-${i}`} className="px-1 font-mono text-xs text-stone-300">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      aria-current={p === page ? 'page' : undefined}
+                      type="button"
+                      className={`h-8 min-w-8 rounded-lg px-2 font-mono text-[13px] transition ${
+                        p === page
+                          ? 'bg-[#2b2b2b] font-semibold text-white'
+                          : 'bg-white text-stone-500 shadow-sm hover:bg-stone-50'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ),
+                )}
+                <button
+                  className="btn btn-sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  type="button"
+                >
+                  Next →
+                </button>
+              </nav>
             )}
           </div>
         </div>

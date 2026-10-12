@@ -16,8 +16,6 @@ import {
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
-  const [persona, setPersona] = useState('renter');
-  const [showNotes, setShowNotes] = useState(false);
   const [user, setUser] = useState(() => readStoredUser());
   const [saved, setSaved] = useState(() => new Set());
   const [savedItems, setSavedItems] = useState([]);
@@ -33,8 +31,12 @@ export function AppProvider({ children }) {
       applySaved([]);
       return;
     }
-    const data = await listSaved();
-    applySaved(data.items);
+    try {
+      const data = await listSaved(1, 50);
+      applySaved(data.items);
+    } catch {
+      applySaved([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -44,18 +46,13 @@ export function AppProvider({ children }) {
       setAuthReady(true);
       return undefined;
     }
-
     (async () => {
       try {
         const me = await getMe();
         if (cancelled) return;
         setUser(me);
         storeUser(me);
-        try {
-          await refreshSaved();
-        } catch {
-          if (!cancelled) applySaved([]);
-        }
+        await refreshSaved();
       } catch {
         if (cancelled) return;
         setAuthToken(null);
@@ -66,7 +63,6 @@ export function AppProvider({ children }) {
         if (!cancelled) setAuthReady(true);
       }
     })();
-
     return () => {
       cancelled = true;
     };
@@ -78,11 +74,7 @@ export function AppProvider({ children }) {
       setAuthToken(token);
       storeUser(nextUser);
       setUser(nextUser);
-      try {
-        await refreshSaved();
-      } catch {
-        applySaved([]);
-      }
+      await refreshSaved().catch(() => applySaved([]));
       return nextUser;
     },
     [refreshSaved],
@@ -111,23 +103,30 @@ export function AppProvider({ children }) {
   const toggleSaved = useCallback(
     async (id) => {
       if (!user) return false;
-      const currentlySaved = saved.has(id);
+      const key = String(id);
+      const currentlySaved = saved.has(key) || saved.has(id);
       setSaved((prev) => {
         const next = new Set(prev);
-        currentlySaved ? next.delete(id) : next.add(id);
+        if (currentlySaved) {
+          next.delete(key);
+          next.delete(id);
+        } else {
+          next.add(key);
+        }
         return next;
       });
       if (currentlySaved) {
-        setSavedItems((prev) => prev.filter((item) => item.id !== id));
+        setSavedItems((prev) => prev.filter((item) => String(item.id) !== key));
       }
       try {
-        if (currentlySaved) await unsaveSpace(id);
-        else await saveSpace(id);
+        if (currentlySaved) await unsaveSpace(key);
+        else await saveSpace(key);
         return true;
       } catch (err) {
         setSaved((prev) => {
           const next = new Set(prev);
-          currentlySaved ? next.add(id) : next.delete(id);
+          if (currentlySaved) next.add(key);
+          else next.delete(key);
           return next;
         });
         throw err;
@@ -138,12 +137,8 @@ export function AppProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      persona,
-      setPersona,
-      isRenter: persona === 'renter',
-      showNotes,
-      toggleNotes: () => setShowNotes((v) => !v),
       user,
+      setUser,
       authReady,
       login,
       register,
@@ -151,10 +146,10 @@ export function AppProvider({ children }) {
       saved,
       savedItems,
       refreshSaved,
-      isSaved: (id) => saved.has(id),
+      isSaved: (id) => saved.has(String(id)) || saved.has(id),
       toggleSaved,
     }),
-    [persona, showNotes, user, authReady, login, register, logout, saved, savedItems, refreshSaved, toggleSaved],
+    [user, authReady, login, register, logout, saved, savedItems, refreshSaved, toggleSaved],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

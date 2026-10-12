@@ -1,19 +1,21 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import Nav from './components/Nav.jsx';
-import Controls from './components/Controls.jsx';
+import Footer from './components/Footer.jsx';
 import Landing from './pages/Landing.jsx';
 import Search from './pages/Search.jsx';
 import ListSpace from './pages/ListSpace.jsx';
 import SpaceDetail from './pages/SpaceDetail.jsx';
 import Messages from './pages/Messages.jsx';
 import Booking from './pages/Booking.jsx';
+import Bookings from './pages/Bookings.jsx';
+import History from './pages/History.jsx';
 import MapView from './pages/MapView.jsx';
 import Profile from './pages/Profile.jsx';
 import Saved from './pages/Saved.jsx';
 import Login from './pages/Login.jsx';
 import { useApp } from './context/AppContext.jsx';
-import { PageStatus } from './components/ui.jsx';
+import { LoadingState } from './components/ui.jsx';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -29,8 +31,8 @@ function RequireAuth({ children }) {
   if (!authReady) {
     return (
       <div className="page">
-        <div className="wire-card" style={{ borderRadius: 5 }}>
-          <PageStatus>Loading…</PageStatus>
+        <div className="card">
+          <LoadingState label="Loading…" />
         </div>
       </div>
     );
@@ -44,10 +46,10 @@ function RequireAuth({ children }) {
 
 export default function App() {
   return (
-    <>
+    <div className="flex min-h-screen flex-col">
       <ScrollToTop />
       <Nav />
-      <main>
+      <main className="flex-1">
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
@@ -55,6 +57,14 @@ export default function App() {
           <Route path="/map" element={<MapView />} />
           <Route
             path="/list"
+            element={
+              <RequireAuth>
+                <ListSpace />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/edit/:id"
             element={
               <RequireAuth>
                 <ListSpace />
@@ -70,15 +80,34 @@ export default function App() {
               </RequireAuth>
             }
           />
+          <Route
+            path="/bookings"
+            element={
+              <RequireAuth>
+                <Bookings />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <RequireAuth>
+                <History />
+              </RequireAuth>
+            }
+          />
           <Route path="/messages" element={<Messages />} />
           <Route
-            path="/profile/:id"
+            path="/profile"
             element={
               <RequireAuth>
                 <Profile />
               </RequireAuth>
             }
           />
+          {/* legacy links */}
+          <Route path="/profile/me" element={<Navigate to="/profile" replace />} />
+          <Route path="/profile/:id" element={<Navigate to="/profile" replace />} />
           <Route
             path="/saved"
             element={
@@ -90,7 +119,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      <Controls />
-    </>
+      <Footer />
+    </div>
   );
 }

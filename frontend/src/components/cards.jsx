@@ -1,16 +1,17 @@
 import { useNavigate } from 'react-router-dom';
-import { Hatch } from './ui.jsx';
-import { HeartIcon } from './icons.jsx';
+import { HeartIcon, BoxIcon, PinIcon } from './icons.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { formatPrice } from '../api.js';
 
-function SaveHeart({ id, round = true }) {
+export function SaveButton({ id }) {
   const { user, isSaved, toggleSaved } = useApp();
   const navigate = useNavigate();
   const saved = isSaved(id);
   return (
     <button
-      aria-label={saved ? 'Remove from saved' : 'Save'}
+      type="button"
+      aria-label={saved ? 'Remove from saved' : 'Save this space'}
+      aria-pressed={saved}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -18,147 +19,102 @@ function SaveHeart({ id, round = true }) {
           navigate(`/login?next=${encodeURIComponent(`/space/${id}`)}`);
           return;
         }
-        toggleSaved(id);
+        toggleSaved(id).catch(() => {});
       }}
-      style={{
-        width: 28,
-        height: 28,
-        background: saved ? 'var(--accent)' : '#fff',
-        border: '1.5px solid var(--ink)',
-        borderRadius: round ? 999 : 8,
-        display: 'grid',
-        placeItems: 'center',
-        cursor: 'pointer',
-        flex: 'none',
-      }}
+      className={`grid h-8 w-8 flex-none place-items-center rounded-full border transition ${
+        saved
+          ? 'border-transparent bg-[#ffd22e] text-[#2b2b2b]'
+          : 'border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:text-[#2b2b2b]'
+      }`}
     >
       <HeartIcon size={14} filled={saved} />
     </button>
   );
 }
 
-// Vertical card — landing "featured", profile listings, saved grid thumbnails.
-export function SpaceCard({ item, showHeart = true }) {
-  const navigate = useNavigate();
-  return (
-    <div
-      className="wire-card clickable"
-      style={{ flex: 1, borderRadius: 14, boxShadow: 'none', minWidth: 0 }}
-      onClick={() => navigate(`/space/${item.id}`)}
-    >
-      <Hatch
-        style={{
-          position: 'relative',
-          aspectRatio: 1.4,
-          borderBottom: '1.5px solid var(--ink)',
-        }}
-      >
-        <span className="tag" style={{ position: 'absolute', top: 10, left: 10 }}>
-          {item.typeLabel}
-        </span>
-        {showHeart && (
-          <div style={{ position: 'absolute', top: 9, right: 9 }}>
-            <SaveHeart id={item.id} />
-          </div>
-        )}
-      </Hatch>
-      <div style={{ padding: '13px 15px 16px' }}>
-        <div style={{ fontSize: 15 }}>{item.title}</div>
-        <div className="mono" style={{ fontSize: 11.5, color: 'var(--label)', marginTop: 5 }}>
-          {item.subtitle || item.city}
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            marginTop: 11,
-          }}
-        >
-          <span className="display" style={{ fontSize: 22 }}>
-            ${formatPrice(item.price)}
-            <span style={{ fontSize: 12, color: 'var(--label)' }}>{item.priceUnit}</span>
-          </span>
-          <span style={{ fontSize: 13, color: 'var(--muted-2)' }}>{item.viewCount} views</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Horizontal row — search results list.
-export function ResultRow({ item }) {
-  const navigate = useNavigate();
-  return (
-    <div
-      className="clickable"
-      onClick={() => navigate(`/space/${item.id}`)}
-      style={{
-        display: 'flex',
-        gap: 16,
-        alignItems: 'center',
-        padding: '16px 22px',
-        borderBottom: '1.5px solid var(--line)',
-      }}
-    >
-      <Hatch
-        style={{
-          flex: 'none',
-          width: 84,
-          height: 84,
-          border: '1.5px solid var(--ink)',
-          borderRadius: 11,
-        }}
+export function Photo({ item, className = '', iconSize = 30 }) {
+  if (item.thumbnailUrl) {
+    return (
+      <img
+        src={item.thumbnailUrl}
+        alt=""
+        loading="lazy"
+        className={`object-cover ${className}`}
       />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15.5, display: 'flex', alignItems: 'center', gap: 8 }}>
-          {item.title}
-        </div>
-        <div className="mono" style={{ fontSize: 11.5, color: 'var(--label)', marginTop: 5 }}>
-          {item.subtitle || item.city}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 9, flexWrap: 'wrap' }}>
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              border: '1.5px solid var(--ink)',
-              borderRadius: 7,
-              padding: '3px 11px',
-            }}
-          >
-            {item.priceTypeLabel}
-          </span>
-        </div>
-      </div>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: 10,
-          flex: 'none',
-        }}
-      >
-        <div style={{ textAlign: 'right' }}>
-          <div className="display" style={{ fontSize: 22, lineHeight: 1 }}>
-            ${formatPrice(item.price)}
-            <span style={{ fontSize: 14, color: 'var(--label)' }}>{item.priceUnit}</span>
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted-2)', marginTop: 4 }}>
-            {item.viewCount} views
-          </div>
-        </div>
-        <div
-          className="chip btn-sm"
-          onClick={(e) => e.stopPropagation()}
-          style={{ gap: 6 }}
-        >
-          <SaveHeart id={item.id} round={false} /> Save
-        </div>
-      </div>
+    );
+  }
+  const first = item.images?.[0];
+  if (first) {
+    return <img src={first} alt="" loading="lazy" className={`object-cover ${className}`} />;
+  }
+  return (
+    <div className={`photo-fallback ${className}`}>
+      <BoxIcon size={iconSize} />
     </div>
   );
 }
 
-export { SaveHeart };
+// Vertical card — landing grids, saved.
+export function SpaceCard({ item }) {
+  const navigate = useNavigate();
+  return (
+    <article
+      onClick={() => navigate(`/space/${item.id}`)}
+      className="card card-hover clickable overflow-hidden"
+    >
+      <div className="relative">
+        <Photo item={item} className="aspect-[16/10] w-full" />
+        <div className="absolute left-3 top-3">
+          <span className="badge bg-white/90 backdrop-blur">{item.priceTypeLabel}</span>
+        </div>
+        <div className="absolute right-3 top-3">
+          <SaveButton id={item.id} />
+        </div>
+      </div>
+      <div className="p-4">
+        <h3 className="truncate text-[15px] font-semibold">{item.title}</h3>
+        <p className="mt-1 flex items-center gap-1 truncate font-mono text-[11.5px] text-stone-500">
+          <PinIcon size={12} />
+          {item.subtitle || item.city || '—'}
+        </p>
+        <div className="mt-3 flex items-baseline justify-between">
+          <span className="display text-xl">
+            ${formatPrice(item.price)}
+            <span className="ml-0.5 text-xs font-normal text-stone-400">{item.priceUnit}</span>
+          </span>
+          <span className="font-mono text-[11px] text-stone-400">{item.viewCount} views</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+// Horizontal row — search results, map list, history.
+export function SpaceRow({ item }) {
+  const navigate = useNavigate();
+  return (
+    <article
+      onClick={() => navigate(`/space/${item.id}`)}
+      className="clickable flex items-center gap-4 border-b border-stone-100 px-5 py-4 transition last:border-0 hover:bg-stone-50"
+    >
+      <Photo item={item} className="h-20 w-20 flex-none rounded-xl" iconSize={22} />
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-[15px] font-semibold">{item.title}</h3>
+        <p className="mt-0.5 truncate font-mono text-[11.5px] text-stone-500">
+          {item.subtitle || item.city || '—'}
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="badge">{item.priceTypeLabel}</span>
+          {item.notAccepting && <span className="badge">Paused</span>}
+        </div>
+      </div>
+      <div className="flex flex-none flex-col items-end gap-2">
+        <span className="display text-lg">
+          ${formatPrice(item.price)}
+          <span className="text-xs font-normal text-stone-400">{item.priceUnit}</span>
+        </span>
+        <SaveButton id={item.id} />
+      </div>
+    </article>
+  );
+}

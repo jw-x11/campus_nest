@@ -24,100 +24,67 @@ export default function Login() {
     setBusy(true);
     try {
       if (mode === 'register') {
-        if (!username.trim()) throw new Error('Choose a username');
+        if (!username.trim()) throw new Error('Choose a username.');
+        if (password.length < 8) throw new Error('Password must be at least 8 characters.');
         await register(email.trim(), password, username.trim());
       } else {
         await login(email.trim(), password);
       }
       navigate(next, { replace: true });
     } catch (err) {
-      setError(err.message || 'Could not sign in');
+      setError(err.message || 'Could not sign in.');
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="page" style={{ maxWidth: 520 }}>
-      <div className="wire-card" style={{ borderRadius: 5, padding: '34px 40px 40px' }}>
-        <div className="label" style={{ letterSpacing: '.06em' }}>ACCOUNT</div>
-        <h1 className="display" style={{ fontSize: 32, marginTop: 6 }}>
-          {mode === 'login' ? 'Log in' : 'Create an account'}
-        </h1>
-        <div style={{ fontSize: 14.5, color: 'var(--muted)', marginTop: 6 }}>
+    <div className="page !max-w-[480px]">
+      <div className="card p-7 sm:p-9">
+        <p className="eyebrow">Account</p>
+        <h1 className="display mt-1 text-3xl">{mode === 'login' ? 'Welcome back' : 'Create an account'}</h1>
+        <p className="mt-2 text-sm text-stone-500">
           Needed to save spaces, list a unit, or send a booking request.
+        </p>
+
+        <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-stone-100 p-1">
+          {['login', 'register'].map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => { setMode(m); setError(''); }}
+              className={`rounded-lg py-2 text-sm font-semibold capitalize transition ${
+                mode === m ? 'bg-white shadow-sm' : 'text-stone-400 hover:text-stone-600'
+              }`}
+            >
+              {m === 'login' ? 'Log in' : 'Sign up'}
+            </button>
+          ))}
         </div>
 
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 18, marginTop: 28 }}>
+        <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
           {mode === 'register' && (
-            <Field label="USERNAME">
-              <input
-                className="field"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                required
-              />
+            <Field label="Username">
+              <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Jane Doe" autoComplete="username" required />
             </Field>
           )}
-          <Field label="EMAIL">
-            <input
-              className="field"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              required
-            />
+          <Field label="Email">
+            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@university.edu" autoComplete="email" required />
           </Field>
-          <Field label="PASSWORD">
-            <input
-              className="field"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              required
-            />
+          <Field label="Password" hint={mode === 'register' ? 'min 8 characters' : ''}>
+            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required />
           </Field>
 
-          {error && (
-            <div style={{ fontSize: 14, color: 'var(--rust)' }}>{error}</div>
-          )}
+          {error && <p className="text-sm text-red-700">{error}</p>}
 
-          <button className="btn btn-primary" type="submit" disabled={busy}>
+          <button className="btn btn-primary btn-block" type="submit" disabled={busy}>
             {busy ? 'Working…' : mode === 'login' ? 'Log in' : 'Create account'}
           </button>
         </form>
 
-        <div style={{ marginTop: 22, fontSize: 14, color: 'var(--muted-2)' }}>
-          {mode === 'login' ? (
-            <>
-              New here?{' '}
-              <button
-                type="button"
-                onClick={() => { setMode('register'); setError(''); }}
-                style={{ background: 'none', border: 'none', color: 'var(--rust)', cursor: 'pointer', padding: 0 }}
-              >
-                Create an account
-              </button>
-            </>
-          ) : (
-            <>
-              Already have an account?{' '}
-              <button
-                type="button"
-                onClick={() => { setMode('login'); setError(''); }}
-                style={{ background: 'none', border: 'none', color: 'var(--rust)', cursor: 'pointer', padding: 0 }}
-              >
-                Log in
-              </button>
-            </>
-          )}
-          <div style={{ marginTop: 12 }}>
-            <Link to="/" style={{ color: 'var(--muted)' }}>← Back home</Link>
-          </div>
-        </div>
+        <p className="mt-5 text-center text-sm text-stone-400">
+          <Link to="/" className="hover:text-stone-700">← Back home</Link>
+        </p>
       </div>
     </div>
   );

@@ -1,206 +1,266 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Field, Annotation } from '../components/ui.jsx';
-import { useApp } from '../context/AppContext.jsx';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Field, LoadingState, ErrorState } from '../components/ui.jsx';
+import { XIcon } from '../components/icons.jsx';
 import { formPriceTypes } from '../data.js';
-import { createSpace } from '../api.js';
+import { createSpace, getSpace, updateSpace, uploadSpaceImages } from '../api.js';
 
-function ChipGroup({ options, value, onChange, getKey = (o) => o, getLabel = (o) => o }) {
+const MAX_IMAGES = 10;
+
+const EMPTY = {
+  title: '', description: '', address: '', city: '', postalCode: '',
+  price: '', priceType: 'recurring_per_month', availableFrom: '', availableTo: '',
+};
+
+function PhotoPicker({ files, onAdd, onRemove, existingCount }) {
+  const remaining = MAX_IMAGES - existingCount - files.length;
   return (
-    <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-      {options.map((o) => {
-        const key = getKey(o);
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => onChange(key)}
-            style={{
-              border: '1.5px solid var(--ink)',
-              borderRadius: 10,
-              padding: '9px 16px',
-              fontSize: 14,
-              cursor: 'pointer',
-              background: value === key ? 'var(--accent)' : '#fff',
-            }}
-          >
-            {getLabel(o)}
-          </button>
-        );
-      })}
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between">
+        <span className="eyebrow">Photos</span>
+        <span className="font-mono text-[11px] text-stone-400">
+          {existingCount + files.length}/{MAX_IMAGES}
+        </span>
+      </div>
+      {(files.length > 0) && (
+        <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+          {files.map((f, i) => (
+            <div key={i} className="relative overflow-hidden rounded-xl border border-stone-200">
+              <img src={URL.createObjectURL(f)} alt="" className="aspect-square w-full object-cover" />
+              <button
+                type="button"
+                aria-label="Remove photo"
+                onClick={() => onRemove(i)}
+                className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white hover:bg-black/80"
+              >
+                <XIcon size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <label
+        className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500 transition hover:border-stone-400 hover:bg-stone-100 ${remaining <= 0 ? 'pointer-events-none opacity-40' : ''}`}
+      >
+        <span className="text-lg leading-none">+</span>
+        {files.length === 0 && existingCount === 0 ? 'Add photos of your space (optional)' : `Add more (${remaining} left)`}
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          disabled={remaining <= 0}
+          onChange={(e) => {
+            onAdd(Array.from(e.target.files || []).slice(0, remaining));
+            e.target.value = '';
+          }}
+        />
+      </label>
+      <p className="mt-1.5 font-mono text-[11px] text-stone-400">JPG/PNG, up to {MAX_IMAGES} per listing.</p>
     </div>
   );
 }
 
 export default function ListSpace() {
-  const { showNotes } = useApp();
+  const { id: editId } = useParams();
+  const isEdit = Boolean(editId);
   const navigate = useNavigate();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [address, setAddress] = useState('');
-  const [city, setCity] = useState('');
-  const [postalCode, setPostalCode] = useState('');
-  const [price, setPrice] = useState('');
-  const [priceType, setPriceType] = useState('recurring_per_month');
-  const [availableFrom, setAvailableFrom] = useState('');
-  const [availableTo, setAvailableTo] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState(EMPTY);
+  const [files, setFiles] = useState([]);
+  const [existingImages, setExistingImages] = useState([]);
+  const [loadState, setLoadState] = useState(isEdit ? 'loading' : 'ready');
+  const [loadError, setLoadError] = useState('');
+  const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const [createdId, setCreatedId] = useState(null);
+  const [savedId, setSavedId] = useState(null);
+  const patch = (p) => setForm((f) => ({ ...f, ...p }));
 
-  const publish = async () => {
-    setError('');
-    if (!title.trim() || !address.trim() || !city.trim() || !postalCode.trim() || !availableFrom || !availableTo) {
-      setError('Title, address, city, postal code, and dates are required.');
-      return;
-    }
-    if (availableTo < availableFrom) {
-      setError('Available-to must be on or after available-from.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const space = await createSpace({
-        title: title.trim(),
-        description: description.trim() || null,
-        address: address.trim(),
-        city: city.trim(),
-        postal_code: postalCode.trim(),
-        price: Number(price) || 0,
-        price_type: priceType,
-        available_from: availableFrom,
-        available_to: availableTo,
+  useEffect(() => {
+    if (!isEdit) return;
+    let cancelled = false;
+    getSpace(editId)
+      .then((space) => {
+        if (cancelled) return;
+        setForm({
+          title: space.title || '',
+          description: space.description || '',
+          address: space.address || '',
+          city: space.city || '',
+          postalCode: space.postalCode || '',
+          price: space.price ? String(space.price) : '',
+          priceType: space.priceType || 'recurring_per_month',
+          availableFrom: space.availableFrom || '',
+          availableTo: space.availableTo || '',
+        });
+        const imgs = space.images?.length ? space.images : space.thumbnailUrl ? [space.thumbnailUrl] : [];
+        setExistingImages(imgs);
+        setLoadState('ready');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadError(err.status === 404 ? 'Listing not found.' : err.message || 'Could not load listing.');
+        setLoadState('error');
       });
-      setCreatedId(space.id);
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, editId]);
+
+  const payload = useMemo(() => ({
+    title: form.title.trim(),
+    description: form.description.trim() || null,
+    address: form.address.trim(),
+    city: form.city.trim(),
+    postal_code: form.postalCode.trim(),
+    price: Number(form.price) || 0,
+    price_type: form.priceType,
+    available_from: form.availableFrom,
+    available_to: form.availableTo,
+  }), [form]);
+
+  const validate = () => {
+    if (!payload.title || !payload.address || !payload.city || !payload.postal_code) {
+      return 'Title, address, city, and postal code are required.';
+    }
+    if (!payload.available_from || !payload.available_to) return 'Availability dates are required.';
+    if (payload.available_to < payload.available_from) return 'Available-to must be on or after available-from.';
+    return '';
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const problem = validate();
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setBusy(isEdit ? 'Saving…' : 'Publishing…');
+    try {
+      const space = isEdit
+        ? await updateSpace(editId, payload)
+        : await createSpace(payload);
+      if (files.length > 0) {
+        setBusy('Uploading photos…');
+        try {
+          await uploadSpaceImages(space.id, files);
+        } catch (imgErr) {
+          setSavedId(space.id);
+          setError(`Saved, but photo upload failed: ${imgErr.message || 'unknown error'}`);
+          setBusy('');
+          return;
+        }
+      }
+      navigate(`/space/${space.id}`);
     } catch (err) {
-      setError(err.message || 'Could not publish listing');
+      setError(err.message || (isEdit ? 'Could not save changes.' : 'Could not publish listing.'));
     } finally {
-      setBusy(false);
+      setBusy((b) => (b === 'Saving…' || b === 'Publishing…' ? '' : b));
     }
   };
 
+  if (loadState === 'loading') {
+    return (
+      <div className="page !max-w-[760px]">
+        <div className="card"><LoadingState label="Loading listing…" /></div>
+      </div>
+    );
+  }
+  if (loadState === 'error') {
+    return (
+      <div className="page !max-w-[760px]">
+        <div className="card"><ErrorState message={loadError} /></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="page">
-      <div className="wire-card" style={{ borderRadius: 5 }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 24px', borderBottom: '1.5px solid var(--line)' }}>
-          <Link to="/" style={{ fontSize: 13.5, color: 'var(--muted)' }}>Cancel</Link>
+    <div className="page !max-w-[760px]">
+      <div className="card p-6 sm:p-9">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="eyebrow">{isEdit ? 'Edit listing' : 'New listing'}</p>
+            <h1 className="display mt-1 text-3xl">{isEdit ? 'Edit your space' : 'List your space'}</h1>
+            <p className="mt-1.5 text-sm text-stone-500">
+              {isEdit ? 'Changes go live immediately.' : 'Free to list. You approve every booking.'}
+            </p>
+          </div>
+          <Link to={isEdit ? `/space/${editId}` : '/'} className="text-sm text-stone-400 hover:text-stone-700">Cancel</Link>
         </div>
 
-        <div style={{ padding: '34px 56px 16px', maxWidth: 820 }}>
-          <h1 className="display" style={{ fontSize: 30 }}>List your space</h1>
-          <div style={{ fontSize: 14.5, color: 'var(--muted)', marginTop: 6 }}>
-            One form, one spaces row. You can edit or pause it anytime.
-          </div>
+        <form onSubmit={submit} className="mt-7 flex flex-col gap-5">
+          <Field label="Listing title">
+            <input className="input" value={form.title} onChange={(e) => patch({ title: e.target.value })} placeholder="Walk-in closet near campus" required />
+          </Field>
+          <Field label="Description">
+            <textarea className="input" value={form.description} onChange={(e) => patch({ description: e.target.value })} placeholder="Secure, dry, lockable space a short walk from campus…" />
+          </Field>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginTop: 28 }}>
-            <Field label="LISTING TITLE">
-              <input className="field" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Walk-in closet near campus" />
-            </Field>
-
-            <Field label="DESCRIPTION">
-              <textarea
-                className="field"
-                placeholder="Secure, dry, lockable closet a short walk from campus…"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </Field>
-
-            <Field label="STREET ADDRESS" note="· private until booking">
-              <input className="field" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="1842 Euclid Ave, Apt 3" />
-            </Field>
-
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <div style={{ flex: '2 1 200px' }}>
-                <Field label="CITY">
-                  <input className="field" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Berkeley" />
-                </Field>
-              </div>
-              <div style={{ flex: '1 1 110px' }}>
-                <Field label="POSTAL CODE">
-                  <input className="field" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} placeholder="94709" />
-                </Field>
+          {isEdit && existingImages.length > 0 && (
+            <div>
+              <span className="eyebrow">Current photos</span>
+              <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {existingImages.map((src, i) => (
+                  <img key={i} src={src} alt="" className="aspect-square w-full rounded-xl border border-stone-200 object-cover" />
+                ))}
               </div>
             </div>
+          )}
 
-            {showNotes && (
-              <Annotation>
-                latitude / longitude are optional on create. Exact address stays off public cards.
-              </Annotation>
-            )}
+          <PhotoPicker
+            files={files}
+            existingCount={existingImages.length}
+            onAdd={(picked) => setFiles((prev) => [...prev, ...picked])}
+            onRemove={(i) => setFiles((prev) => prev.filter((_, j) => j !== i))}
+          />
 
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <div style={{ flex: '1 1 160px' }}>
-                <Field label="PRICE · USD">
-                  <div className="field">
-                    <span style={{ color: 'var(--label)' }}>$</span>
-                    <input
-                      value={price}
-                      onChange={(e) => setPrice(e.target.value)}
-                      placeholder="45.00"
-                      style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }}
-                    />
-                  </div>
-                </Field>
-              </div>
-              <div style={{ flex: '1.4 1 220px' }}>
-                <Field label="PRICE TYPE">
-                  <ChipGroup
-                    options={formPriceTypes}
-                    value={priceType}
-                    onChange={setPriceType}
-                    getKey={(o) => o.sub}
-                    getLabel={(o) => o.label}
-                  />
-                </Field>
-              </div>
-            </div>
-
-            <Field label="AVAILABLE FROM → TO">
-              <div className="field" style={{ gap: 10 }}>
-                <input type="date" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} style={{ border: 'none', background: 'transparent' }} />
-                <span style={{ color: '#bbb' }}>→</span>
-                <input type="date" value={availableTo} onChange={(e) => setAvailableTo(e.target.value)} style={{ border: 'none', background: 'transparent' }} />
-              </div>
+          <Field label="Street address" hint="private until booking confirmed">
+            <input className="input" value={form.address} onChange={(e) => patch({ address: e.target.value })} placeholder="1842 Euclid Ave, Apt 3" required />
+          </Field>
+          <div className="grid gap-5 sm:grid-cols-[2fr_1fr]">
+            <Field label="City">
+              <input className="input" value={form.city} onChange={(e) => patch({ city: e.target.value })} placeholder="Berkeley" required />
+            </Field>
+            <Field label="Postal code">
+              <input className="input" value={form.postalCode} onChange={(e) => patch({ postalCode: e.target.value })} placeholder="94709" required />
             </Field>
           </div>
-        </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Price (USD)">
+              <input className="input" type="number" min="0" step="0.01" value={form.price} onChange={(e) => patch({ price: e.target.value })} placeholder="45.00" />
+            </Field>
+            <Field label="Price type">
+              <select className="input" value={form.priceType} onChange={(e) => patch({ priceType: e.target.value })}>
+                {formPriceTypes.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label} — {o.hint}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Available from">
+              <input type="date" className="input" value={form.availableFrom} onChange={(e) => patch({ availableFrom: e.target.value })} required />
+            </Field>
+            <Field label="Available to">
+              <input type="date" className="input" value={form.availableTo} min={form.availableFrom} onChange={(e) => patch({ availableTo: e.target.value })} required />
+            </Field>
+          </div>
 
-        <div
-          style={{
-            position: 'sticky',
-            bottom: 0,
-            borderTop: '2px solid var(--ink)',
-            background: '#fff',
-            padding: '16px 56px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: createdId || error ? 'space-between' : 'flex-end',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          {error && (
-            <span className="mono" style={{ fontSize: 13, color: 'var(--rust)' }}>{error}</span>
-          )}
-          {createdId && (
-            <span className="mono" style={{ fontSize: 13, color: 'var(--rust)' }}>
-              ✓ Listing published.
-            </span>
-          )}
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Link to="/" className="btn">Cancel</Link>
-            {createdId ? (
-              <button className="btn btn-primary" onClick={() => navigate(`/space/${createdId}`)}>
+          {error && <p className="text-sm text-red-700">{error}</p>}
+
+          <div className="flex justify-end gap-2">
+            <Link to={isEdit ? `/space/${editId}` : '/'} className="btn">Cancel</Link>
+            {savedId ? (
+              <button className="btn btn-primary" type="button" onClick={() => navigate(`/space/${savedId}`)}>
                 View listing →
               </button>
             ) : (
-              <button className="btn btn-primary" onClick={publish} disabled={busy}>
-                {busy ? 'Publishing…' : 'Publish listing'}
+              <button className="btn btn-primary" type="submit" disabled={!!busy}>
+                {busy || (isEdit ? 'Save changes' : 'Publish listing')}
               </button>
             )}
           </div>
-        </div>
+        </form>
       </div>
     </div>
   );

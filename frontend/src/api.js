@@ -96,19 +96,45 @@ export async function api(path, { method = 'GET', body, query, auth = false } = 
     throw new ApiError(message, res.status, payload);
   }
 
+  // Backend envelope: { code, message, data }
   if (payload && typeof payload === 'object' && 'data' in payload) return payload.data;
   return payload;
 }
 
+async function apiForm(path, { file, field = 'file', files, auth = true } = {}) {
+  const token = getAuthToken();
+  if (auth && !token) throw new ApiError('Please log in', 401);
+  const form = new FormData();
+  if (files) files.forEach((f) => form.append('files', f));
+  else if (file) form.append(field, file);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new ApiError(
+      formatDetail(payload?.detail) || payload?.message || 'Upload failed',
+      res.status,
+      payload,
+    );
+  }
+  return payload?.data ?? payload;
+}
+
+/* ---------- mappers (tolerate both `id` and `space_id` keys) ---------- */
+
 export function mapSpace(space) {
   if (!space) return null;
-  const priceType = space.price_type ?? space.priceType;
+  const rawId = space.id ?? space.space_id;
+  const priceType = space.price_type ?? space.priceType ?? 'recurring_per_month';
   const meta = priceTypeMeta[priceType] || priceTypeMeta.recurring_per_month;
   const from = space.available_from ?? space.availableFrom ?? '';
   const to = space.available_to ?? space.availableTo ?? '';
   const city = space.city || '';
   return {
-    id: String(space.id ?? space.space_id),
+    id: String(rawId),
     title: space.title || 'Untitled space',
     description: space.description || '',
     address: space.address || '',
@@ -123,9 +149,14 @@ export function mapSpace(space) {
     latitude: space.latitude == null ? null : Number(space.latitude),
     longitude: space.longitude == null ? null : Number(space.longitude),
     viewCount: space.view_count ?? space.viewCount ?? 0,
+    thumbnailUrl: space.thumbnail_url ?? space.thumbnailUrl ?? null,
+    images: space.images ?? [],
+    isActive: space.is_active ?? space.isActive ?? true,
+    notAccepting: space.not_accepting ?? space.notAccepting ?? false,
+    expiredAt: space.expired_at ?? space.expiredAt ?? null,
+    ownerId: space.owner_id ?? space.ownerId ?? null,
     createdAt: space.created_at ?? space.createdAt,
     updatedAt: space.updated_at ?? space.updatedAt,
-    typeLabel: city || 'Storage',
     subtitle: [city, formatDateRange(from, to)].filter(Boolean).join(' · '),
   };
 }
@@ -146,12 +177,34 @@ export function mapUser(user) {
   };
 }
 
+export function mapBooking(b) {
+  if (!b) return null;
+  return {
+    id: String(b.id),
+    spaceId: String(b.space_id ?? b.spaceId),
+    renterId: b.renter_id ?? b.renterId,
+    ownerId: b.owner_id ?? b.ownerId,
+    startDate: b.start_date ?? b.startDate,
+    endDate: b.end_date ?? b.endDate,
+    status: b.status,
+    price: Number(b.price) || 0,
+    priceType: b.price_type ?? b.priceType,
+    totalPrice: Number(b.total_price ?? b.totalPrice) || 0,
+    specialDeal: Number(b.special_deal ?? b.specialDeal) || 0,
+    cancelRequestedBy: b.cancel_requested_by ?? b.cancelRequestedBy ?? null,
+    createdAt: b.created_at ?? b.createdAt,
+    updatedAt: b.updated_at ?? b.updatedAt,
+  };
+}
+
 function unwrapAuth(data) {
   return {
     token: data.token,
     user: mapUser(data.user_info ?? data.userInfo ?? data.user),
   };
 }
+
+/* ---------- formatting ---------- */
 
 export function formatDate(iso) {
   if (!iso) return '';
@@ -202,6 +255,8 @@ export function safeNext(value) {
   return '/';
 }
 
+/* ---------- auth / users ---------- */
+
 export function login(email, password) {
   return api('/auth/login', { method: 'POST', body: { email, password } }).then(unwrapAuth);
 }
@@ -228,6 +283,12 @@ export function updateMe(body) {
   return api('/users/me', { method: 'PUT', auth: true, body }).then(mapUser);
 }
 
+export function uploadAvatar(file) {
+  return apiForm('/users/me/avatar', { file, field: 'file' }).then(mapUser);
+}
+
+/* ---------- spaces (real query aliases: kw, pc, from, to, price-type, min, max, pg, pg-size, sort, order) ---------- */
+
 export async function searchSpaces(filters = {}) {
   const data = await api('/spaces/all', {
     query: {
@@ -240,9 +301,10 @@ export async function searchSpaces(filters = {}) {
       min: filters.minPrice,
       max: filters.maxPrice,
       pg: filters.page ?? 1,
-      'pg-size': filters.pageSize ?? 25,
+      'pg-size': filters.pageSize ?? 12,
       sort: filters.sortBy,
       order: filters.sortOrder,
+      show_non_accepting: filters.showNonAccepting ? true : undefined,
     },
   });
   return {
@@ -253,8 +315,11 @@ export async function searchSpaces(filters = {}) {
   };
 }
 
-export function getSpace(id) {
-  return api(`/spaces/${id}`).then(mapSpace);
+export async function getSpace(id) {
+  const data = await api(`/spaces/${id}`);
+  const space = mapSpace(data);
+  if (space && data?.images?.length && !space.images?.length) space.images = data.images;
+  return space;
 }
 
 export async function listMySpaces(page = 1, pageSize = 25) {
@@ -269,11 +334,46 @@ export async function listMySpaces(page = 1, pageSize = 25) {
   };
 }
 
+export async function listOwnerSpaces(ownerId, page = 1, pageSize = 25) {
+  const data = await api(`/spaces/from/${ownerId}`, { query: { page, page_size: pageSize } });
+  return {
+    total: data?.total_count ?? 0,
+    hasMore: Boolean(data?.has_more),
+    spaces: (data?.spaces ?? []).map(mapSpace),
+  };
+}
+
 export function createSpace(body) {
   return api('/spaces/post', { method: 'POST', auth: true, body }).then(mapSpace);
 }
 
-export async function listSaved(page = 1, pageSize = 100) {
+export function updateSpace(id, body) {
+  return api(`/spaces/${id}`, { method: 'PUT', auth: true, body }).then(mapSpace);
+}
+
+export function deleteSpace(id) {
+  return api(`/spaces/${id}`, { method: 'DELETE', auth: true });
+}
+
+export function setSpaceAccepting(id, notAccepting) {
+  return api(`/spaces/${id}/accepting`, {
+    method: 'PATCH',
+    auth: true,
+    body: { not_accepting: notAccepting },
+  }).then(mapSpace);
+}
+
+export function renewSpace(id) {
+  return api(`/spaces/renew/${id}`, { method: 'PUT', auth: true });
+}
+
+export function uploadSpaceImages(id, files) {
+  return apiForm(`/spaces/${id}/images`, { files });
+}
+
+/* ---------- saved ---------- */
+
+export async function listSaved(page = 1, pageSize = 25) {
   const data = await api('/saved/list', {
     auth: true,
     query: { page, page_size: pageSize },
@@ -297,14 +397,102 @@ export function unsaveSpace(id) {
   return api(`/saved/${id}`, { method: 'DELETE', auth: true });
 }
 
+export async function savedStatus(id) {
+  const data = await api(`/saved/${id}`, { auth: true });
+  return Boolean(data?.saved);
+}
+
+/* ---------- history ---------- */
+
 export function recordView(id) {
   return api(`/history/${id}`, { method: 'POST', auth: true });
 }
+
+export async function listHistory({ cursor, pageSize = 12 } = {}) {
+  const data = await api('/history/list', {
+    auth: true,
+    query: { cursor, page_size: pageSize },
+  });
+  return {
+    total: data?.total_count ?? 0,
+    hasMore: Boolean(data?.has_more),
+    nextCursor: data?.next_cursor ?? null,
+    items: (data?.history_list ?? []).map((row) => ({
+      ...mapSpace(row.space),
+      viewedAt: row.viewed_at,
+    })),
+  };
+}
+
+export function deleteHistory(id) {
+  return api(`/history/${id}`, { method: 'DELETE', auth: true });
+}
+
+export function clearHistory() {
+  return api('/history/clear', { method: 'DELETE', auth: true });
+}
+
+/* ---------- bookings ---------- */
 
 export function createBooking({ spaceId, startDate, endDate }) {
   return api('/bookings/', {
     method: 'POST',
     auth: true,
-    body: { space_id: spaceId, start_date: startDate, end_date: endDate },
+    body: { space_id: Number(spaceId), start_date: startDate, end_date: endDate },
+  }).then(mapBooking);
+}
+
+export async function listBookings({ view = 'renter', status, page = 1, pageSize = 10 } = {}) {
+  const data = await api('/bookings/me', {
+    auth: true,
+    query: { view, status, page, page_size: pageSize },
+  });
+  return {
+    total: data?.total_count ?? 0,
+    bookings: (data?.bookings ?? []).map(mapBooking),
+  };
+}
+
+export function getBooking(id) {
+  return api(`/bookings/details/${id}`, { auth: true }).then(mapBooking);
+}
+
+export function updateBooking(id, { startDate, endDate }) {
+  return api(`/bookings/details/${id}`, {
+    method: 'PUT',
+    auth: true,
+    body: { booking_id: id, start_date: startDate, end_date: endDate },
+  });
+}
+
+export function cancelBooking(id) {
+  return api('/bookings/cancel', { method: 'PATCH', auth: true, body: { booking_id: id } });
+}
+
+export function withdrawCancel(id) {
+  return api('/bookings/cancel/withdraw', {
+    method: 'PATCH',
+    auth: true,
+    body: { booking_id: id },
+  });
+}
+
+export function acceptBooking(id) {
+  return api('/bookings/accept', { method: 'PATCH', auth: true, body: { booking_id: id } });
+}
+
+export function confirmBooking(id) {
+  return api('/bookings/confirm', { method: 'PATCH', auth: true, body: { booking_id: id } });
+}
+
+export function declineBooking(id) {
+  return api('/bookings/decline', { method: 'PATCH', auth: true, body: { booking_id: id } });
+}
+
+export function setSpecialDeal(id, price) {
+  return api('/bookings/special', {
+    method: 'PATCH',
+    auth: true,
+    body: { booking_id: id, price },
   });
 }

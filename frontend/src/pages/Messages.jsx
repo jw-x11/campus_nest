@@ -2,44 +2,27 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Avatar } from '../components/ui.jsx';
 import { SendIcon } from '../components/icons.jsx';
-import { conversations, threadMessages } from '../data.js';
 
-function Bubble({ m }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: m.mine ? 'flex-end' : 'flex-start' }}>
-      <div style={{ maxWidth: '74%' }}>
-        <div
-          style={{
-            border: '1.5px solid var(--ink)',
-            borderRadius: 14,
-            padding: '11px 14px',
-            fontSize: 14,
-            lineHeight: 1.4,
-            background: m.mine ? 'var(--accent)' : '#fff',
-            borderBottomRightRadius: m.mine ? 4 : 14,
-            borderBottomLeftRadius: m.mine ? 14 : 4,
-          }}
-        >
-          {m.text}
-        </div>
-        <div
-          className="mono"
-          style={{ fontSize: 10, color: '#aaa', marginTop: 4, textAlign: m.mine ? 'right' : 'left' }}
-        >
-          {m.when}
-        </div>
-      </div>
-    </div>
-  );
-}
+// Pilot preview: the backend has no messaging endpoints yet
+// (see backend/main.py TODO: SocketIO live message), so threads
+// below are static and composing stays on this device.
+const THREADS = [
+  { id: 'aisha', initials: 'AL', name: 'Aisha L.', space: 'Walk-in closet, North Side', snippet: 'Sounds good — I can do the 1st.', when: '2m', unread: 2 },
+  { id: 'tom', initials: 'TM', name: 'Tom M.', space: 'Dry garage bay', snippet: 'Is the space climate controlled?', when: '1h', unread: 0 },
+  { id: 'priya', initials: 'PS', name: 'Priya S.', space: 'Lockable spare room', snippet: 'Thanks! See you Saturday.', when: '3h', unread: 0 },
+];
+
+const STARTER = [
+  { mine: false, text: 'Hi! Is the space still available June through August?', when: '9:02 AM' },
+  { mine: true, text: 'Hey! Yes it is — lockable door, self-serve access. When would you want to drop off?', when: '9:05 AM' },
+  { mine: false, text: 'Sounds good — I can do the 1st.', when: '9:11 AM' },
+];
 
 export default function Messages() {
-  const [activeId, setActiveId] = useState(conversations[0].id);
-  const [messages, setMessages] = useState(threadMessages);
+  const [activeId, setActiveId] = useState(THREADS[0].id);
+  const [messages, setMessages] = useState(STARTER);
   const [draft, setDraft] = useState('');
-  const [status, setStatus] = useState('pending'); // pending | confirmed | declined
-
-  const active = conversations.find((c) => c.id === activeId);
+  const active = THREADS.find((t) => t.id === activeId);
 
   const send = () => {
     const text = draft.trim();
@@ -48,157 +31,83 @@ export default function Messages() {
     setDraft('');
   };
 
-  const statusLabel = {
-    pending: '● request pending',
-    confirmed: '● booking confirmed',
-    declined: '● request declined',
-  }[status];
-
   return (
     <div className="page">
-      <div className="wire-card" style={{ borderRadius: 5 }}>
-        <div style={{ display: 'flex', height: 640 }}>
-          {/* conversation list */}
-          <div style={{ flex: 'none', width: 320, borderRight: '2px solid var(--ink)', display: 'flex', flexDirection: 'column' }}>
-            <div
-              style={{
-                padding: '16px 18px',
-                borderBottom: '1.5px solid var(--line)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="eyebrow">Messages</p>
+          <h1 className="display mt-1 text-3xl">Inbox</h1>
+        </div>
+        <span className="badge badge-accent">Pilot preview — stays on this device</span>
+      </div>
+
+      <div className="card grid overflow-hidden lg:grid-cols-[300px_1fr]">
+        <div className="border-b border-stone-100 lg:border-b-0 lg:border-r">
+          {THREADS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveId(t.id)}
+              className={`flex w-full items-center gap-3 border-b border-stone-100 px-4 py-3.5 text-left transition last:border-0 ${
+                t.id === activeId ? 'bg-stone-50' : 'hover:bg-stone-50/60'
+              }`}
             >
-              <span className="display" style={{ fontSize: 19 }}>Messages</span>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--label)' }}>4 threads</span>
+              <Avatar size={40}>{t.initials}</Avatar>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold">{t.name}</span>
+                  <span className="font-mono text-[10.5px] text-stone-400">{t.when}</span>
+                </span>
+                <span className="mt-0.5 block truncate font-mono text-[11px] text-stone-400">{t.space}</span>
+                <span className="mt-0.5 flex items-center gap-2 truncate text-[12.5px] text-stone-500">
+                  <span className="truncate">{t.snippet}</span>
+                  {t.unread > 0 && (
+                    <span className="grid h-[18px] min-w-[18px] flex-none place-items-center rounded-full bg-[#2b2b2b] px-1 font-mono text-[10px] text-white">
+                      {t.unread}
+                    </span>
+                  )}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex min-h-[480px] flex-col">
+          <div className="flex items-center gap-3 border-b border-stone-100 px-5 py-3.5">
+            <Avatar size={38}>{active.initials}</Avatar>
+            <div className="flex-1">
+              <p className="text-[15px] font-semibold">{active.name}</p>
+              <p className="font-mono text-[11px] text-stone-400">{active.space}</p>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {conversations.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setActiveId(c.id)}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    display: 'flex',
-                    gap: 12,
-                    padding: '15px 18px',
-                    border: 'none',
-                    borderBottom: '1.5px solid var(--line)',
-                    borderLeft: c.id === activeId ? '3px solid var(--accent)' : '3px solid transparent',
-                    background: c.id === activeId ? 'var(--tint)' : '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <Avatar size={42}>{c.initials}</Avatar>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                      <span style={{ fontSize: 14.5, fontWeight: 600 }}>{c.name}</span>
-                      <span className="mono" style={{ fontSize: 10.5, color: 'var(--label)' }}>{c.when}</span>
-                    </div>
-                    <div
-                      className="mono"
-                      style={{ fontSize: 10.5, color: 'var(--label)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    >
-                      {c.space}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}>
-                      <span style={{ flex: 1, fontSize: 12.5, color: 'var(--muted-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {c.snippet}
-                      </span>
-                      {c.unread > 0 && (
-                        <span
-                          className="mono"
-                          style={{
-                            flex: 'none',
-                            minWidth: 18,
-                            height: 18,
-                            padding: '0 5px',
-                            borderRadius: 999,
-                            background: 'var(--ink)',
-                            color: '#fff',
-                            fontSize: 10,
-                            display: 'grid',
-                            placeItems: 'center',
-                          }}
-                        >
-                          {c.unread}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <Link to="/bookings" className="btn btn-sm">Bookings</Link>
           </div>
 
-          {/* thread */}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            {/* header */}
-            <div style={{ padding: '13px 20px', borderBottom: '2px solid var(--ink)', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Avatar size={40}>{active.initials}</Avatar>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15.5, fontWeight: 600 }}>{active.name}</div>
-                <div className="mono" style={{ fontSize: 11, color: 'var(--label)' }}>★ {active.rating}</div>
-              </div>
-              <Link to="/profile/me" className="chip btn-sm">View profile</Link>
-            </div>
-
-            {/* booking context */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '12px 20px', borderBottom: '1.5px solid var(--line)', background: 'var(--tint-2)', flexWrap: 'wrap' }}>
-              <div className="hatch" style={{ flex: 'none', width: 46, height: 46, border: '1.5px solid var(--ink)', borderRadius: 9 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14 }}>{active.space}</div>
-                <div className="mono" style={{ fontSize: 11, color: 'var(--label)', marginTop: 3 }}>
-                  $45/mo · Jun 1 – Aug 20 · <span style={{ color: status === 'confirmed' ? '#3b7a3b' : 'var(--rust)' }}>{statusLabel}</span>
+          <div className="flex flex-1 flex-col gap-3 overflow-y-auto bg-stone-50/60 p-5">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  m.mine ? 'rounded-br-md bg-[#ffd22e]' : 'rounded-bl-md bg-white shadow-sm'
+                }`}>
+                  {m.text}
                 </div>
               </div>
-              {status === 'pending' ? (
-                <>
-                  <button className="btn btn-primary btn-sm" onClick={() => setStatus('confirmed')}>Accept</button>
-                  <button className="btn btn-sm" onClick={() => setStatus('declined')}>Decline</button>
-                </>
-              ) : (
-                <button className="btn btn-sm" onClick={() => setStatus('pending')}>Reset</button>
-              )}
-            </div>
+            ))}
+          </div>
 
-            {/* messages */}
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 13, background: 'var(--tint-3)' }}>
-              <div className="mono" style={{ textAlign: 'center', fontSize: 10.5, color: '#aaa' }}>TODAY</div>
-              {messages.map((m, i) => (
-                <Bubble key={i} m={m} />
-              ))}
-            </div>
-
-            {/* composer */}
-            <div style={{ borderTop: '2px solid var(--ink)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 11 }}>
-              <input
-                className="field"
-                placeholder="Type a message…"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send()}
-                style={{ flex: 1, borderRadius: 12 }}
-              />
-              <button
-                onClick={send}
-                aria-label="Send"
-                style={{
-                  width: 46,
-                  height: 46,
-                  border: '2px solid var(--ink)',
-                  borderRadius: 12,
-                  background: 'var(--accent)',
-                  display: 'grid',
-                  placeItems: 'center',
-                  cursor: 'pointer',
-                  flex: 'none',
-                }}
-              >
-                <SendIcon size={18} />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 border-t border-stone-100 p-4">
+            <input
+              className="input"
+              placeholder="Type a message…"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && send()}
+            />
+            <button
+              onClick={send}
+              aria-label="Send"
+              className="grid h-[46px] w-[46px] flex-none place-items-center rounded-xl bg-[#ffd22e] transition hover:brightness-95"
+            >
+              <SendIcon size={17} />
+            </button>
           </div>
         </div>
       </div>

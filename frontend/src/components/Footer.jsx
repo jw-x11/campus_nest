@@ -1,26 +1,19 @@
+import { Link } from 'react-router-dom';
+
 export default function Footer() {
   return (
-    <div
-      style={{
-        borderTop: '2px solid var(--ink)',
-        background: 'var(--tint)',
-        padding: '24px 56px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 18,
-        flexWrap: 'wrap',
-      }}
-    >
-      <span className="display" style={{ fontSize: 20 }}>
-        campus nest
-      </span>
-      <div style={{ display: 'flex', gap: 22, fontSize: 13.5, color: 'var(--muted)' }}>
-        <span>How it works</span>
-        <span>Safety</span>
-        <span>Prohibited items</span>
-        <span>Help</span>
+    <footer className="border-t border-stone-200 bg-white">
+      <div className="mx-auto flex max-w-[1120px] flex-wrap items-center justify-between gap-4 px-5 py-6">
+        <span className="display text-[17px]">campus nest</span>
+        <p className="font-mono text-[11.5px] text-stone-400">
+          Summer storage near campus · pilot 2026
+        </p>
+        <div className="flex gap-5 text-[13px] text-stone-500">
+          <Link to="/search" className="hover:text-stone-900">Browse</Link>
+          <Link to="/list" className="hover:text-stone-900">List a space</Link>
+          <Link to="/messages" className="hover:text-stone-900">Messages</Link>
+        </div>
       </div>
-    </div>
+    </footer>
   );
 }

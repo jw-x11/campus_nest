@@ -1,37 +1,68 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Hatch, Annotation, PageStatus } from '../components/ui.jsx';
-import { SaveHeart } from '../components/cards.jsx';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { BoxIcon, PinIcon, CalendarIcon } from '../components/icons.jsx';
+import { SaveButton } from '../components/cards.jsx';
+import { LoadingState, ErrorState, StatusBadge } from '../components/ui.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { formatDateRange, formatPrice, getSpace, recordView } from '../api.js';
 
-const PHOTO_COUNT = 5;
+function Gallery({ images, thumbnail }) {
+  const [idx, setIdx] = useState(0);
+  const list = images?.length ? images : thumbnail ? [thumbnail] : [];
+  if (!list.length) {
+    return (
+      <div className="photo-fallback aspect-[16/8] w-full rounded-2xl">
+        <BoxIcon size={44} />
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="overflow-hidden rounded-2xl bg-stone-100">
+        <img src={list[idx]} alt="" className="aspect-[16/8] w-full object-cover" />
+      </div>
+      {list.length > 1 && (
+        <div className="mt-2 flex gap-2 overflow-x-auto">
+          {list.map((src, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setIdx(i)}
+              className={`h-16 w-24 flex-none overflow-hidden rounded-xl border-2 transition ${
+                i === idx ? 'border-[#2b2b2b]' : 'border-transparent opacity-60 hover:opacity-100'
+              }`}
+            >
+              <img src={src} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SpaceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { showNotes, user } = useApp();
+  const { user } = useApp();
   const [item, setItem] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState('loading');
   const [error, setError] = useState('');
-  const [photo, setPhoto] = useState(0);
+  const isOwner = Boolean(user && item && String(user.id) === String(item.ownerId));
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError('');
+    setState('loading');
     getSpace(id)
       .then((space) => {
         if (cancelled) return;
         setItem(space);
+        setState('ready');
       })
       .catch((err) => {
         if (cancelled) return;
-        setItem(null);
-        setError(err.status === 404 ? 'This listing was not found.' : err.message || 'Could not load listing');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        setError(err.status === 404 ? 'This listing was not found.' : err.message || 'Could not load listing.');
+        setState('error');
       });
     return () => {
       cancelled = true;
@@ -39,195 +70,113 @@ export default function SpaceDetail() {
   }, [id]);
 
   useEffect(() => {
-    if (!user || !item) return;
+    if (!user || !item || user.id === item.ownerId) return;
     recordView(item.id).catch(() => {});
   }, [user, item]);
 
   return (
     <div className="page">
-      <div className="wire-card" style={{ borderRadius: 5 }}>
-        <div style={{ padding: '13px 24px', borderBottom: '1.5px solid var(--line)', fontSize: 13, color: 'var(--muted)' }}>
-          <Link to="/search">← Back to results</Link>
-          {item?.city && <> &nbsp;·&nbsp; {item.city}</>}
-        </div>
+      <button
+        type="button"
+        onClick={() => {
+          if (window.history.length > 1) navigate(-1);
+          else navigate('/search');
+        }}
+        className="mb-4 inline-block text-sm text-stone-500 hover:text-stone-900"
+      >
+        ← Back
+      </button>
 
-        {loading && <PageStatus>Loading listing…</PageStatus>}
-        {error && <PageStatus style={{ color: 'var(--rust)' }}>{error}</PageStatus>}
+      {state === 'loading' && (
+        <div className="card"><LoadingState label="Loading listing…" /></div>
+      )}
+      {state === 'error' && (
+        <div className="card"><ErrorState message={error} onRetry={() => window.location.reload()} /></div>
+      )}
 
-        {item && (
-          <>
-            <div style={{ padding: '18px 24px' }}>
-              <Hatch
-                style={{
-                  position: 'relative',
-                  aspectRatio: 1.9,
-                  border: '1.5px solid var(--ink)',
-                  borderRadius: 12,
-                }}
-              >
-                <span
-                  className="mono tag"
-                  style={{ position: 'absolute', top: 14, left: 14, background: 'var(--tint)' }}
-                >
-                  PHOTO {photo + 1} / {PHOTO_COUNT}
+      {state === 'ready' && item && (
+        <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+          <div className="min-w-0">
+            <Gallery images={item.images} thumbnail={item.thumbnailUrl} />
+            <div className="card mt-4 p-6">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="badge">{item.priceTypeLabel}</span>
+                {item.notAccepting && <span className="badge">Paused — not taking requests</span>}
+                {!item.isActive && <span className="badge">Hidden</span>}
+              </div>
+              <h1 className="display mt-3 text-3xl">{item.title}</h1>
+              <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-stone-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <PinIcon size={13} /> {item.city || '—'}{item.postalCode ? ` · ${item.postalCode}` : ''}
                 </span>
-                <GalleryArrow side="left" onClick={() => setPhoto((p) => (p - 1 + PHOTO_COUNT) % PHOTO_COUNT)} />
-                <GalleryArrow side="right" onClick={() => setPhoto((p) => (p + 1) % PHOTO_COUNT)} />
-                <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
-                  {Array.from({ length: PHOTO_COUNT }).map((_, i) => (
-                    <span
-                      key={i}
-                      onClick={() => setPhoto(i)}
-                      className="clickable"
-                      style={{
-                        width: 9,
-                        height: 9,
-                        borderRadius: '50%',
-                        background: i === photo ? 'var(--ink)' : 'transparent',
-                        border: '1.5px solid var(--ink)',
-                      }}
-                    />
-                  ))}
-                </div>
-              </Hatch>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'flex-start', borderTop: '1.5px solid var(--line)', flexWrap: 'wrap' }}>
-              <div style={{ flex: '1 1 520px', minWidth: 0, padding: '26px 28px 36px', borderRight: '2px solid var(--ink)' }}>
-                <span className="tag">{(item.city || 'STORAGE').toUpperCase()}</span>
-                <h1 className="display" style={{ fontSize: 32, marginTop: 12 }}>{item.title}</h1>
-                <div style={{ fontSize: 14.5, color: 'var(--muted-2)', marginTop: 7 }}>
-                  {item.viewCount} views · {item.priceTypeLabel}
-                </div>
-
-                <div style={{ display: 'flex', border: '1.5px solid var(--ink)', borderRadius: 12, marginTop: 22, overflow: 'hidden' }}>
-                  {[
-                    ['CITY', item.city || '—'],
-                    ['PRICE', `$${formatPrice(item.price)} ${item.priceUnit}`],
-                    ['AVAILABLE', formatDateRange(item.availableFrom, item.availableTo) || '—'],
-                  ].map(([k, v], i) => (
-                    <div key={k} style={{ flex: 1, padding: 16, borderRight: i < 2 ? '1.5px solid var(--line)' : 'none' }}>
-                      <div className="mono" style={{ fontSize: 10, color: 'var(--label)' }}>{k}</div>
-                      <div style={{ fontSize: 15, marginTop: 5 }}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-
-                <Section title="About this space">
-                  <div style={{ fontSize: 15.5, color: '#444', lineHeight: 1.6 }}>
-                    {item.description || 'The host has not added a description yet.'}
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarIcon size={13} /> {formatDateRange(item.availableFrom, item.availableTo) || '—'}
+                </span>
+                <span className="font-mono text-xs text-stone-400">{item.viewCount} views</span>
+              </p>
+              <hr className="divider my-5" />
+              <h2 className="font-semibold">About this space</h2>
+              <p className="mt-2 text-[15px] leading-relaxed text-stone-600">
+                {item.description || 'The host has not added a description yet.'}
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  ['City', item.city || '—'],
+                  ['Price', `$${formatPrice(item.price)} ${item.priceUnit}`],
+                  ['Available', formatDateRange(item.availableFrom, item.availableTo) || '—'],
+                  ['Views', String(item.viewCount)],
+                ].map(([k, v]) => (
+                  <div key={k} className="rounded-xl bg-stone-50 p-3">
+                    <div className="eyebrow">{k}</div>
+                    <div className="mt-1 truncate text-sm font-medium">{v}</div>
                   </div>
-                </Section>
-
-                <Section title="Approximate location">
-                  <div
-                    className="mini-map"
-                    style={{
-                      height: 150,
-                      border: '1.5px solid var(--ink)',
-                      borderRadius: 12,
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 64,
-                        height: 64,
-                        border: '2px dashed var(--ink)',
-                        borderRadius: 999,
-                        background: 'rgba(189,86,56,.12)',
-                      }}
-                    />
-                  </div>
-                  <div className="mono" style={{ fontSize: 12, color: 'var(--label)', marginTop: 8 }}>
-                    {item.city}{item.postalCode ? ` · ${item.postalCode}` : ''} · exact address after booking
-                  </div>
-                  {showNotes && (
-                    <Annotation style={{ marginTop: 10 }}>
-                      Only city / postal code are shown. Exact address is revealed after the host confirms the booking.
-                    </Annotation>
-                  )}
-                </Section>
+                ))}
               </div>
-
-              <div style={{ flex: '0 0 312px', width: 312, padding: 24 }}>
-                <div style={{ border: '2px solid var(--ink)', borderRadius: 14, padding: 20, position: 'sticky', top: 90 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <span className="display" style={{ fontSize: 34 }}>${formatPrice(item.price)}</span>
-                    <span style={{ fontSize: 14, color: 'var(--label)' }}>
-                      {item.priceUnit === '/wk' ? '/week' : item.priceUnit === 'flat' ? 'one-time' : '/month'}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', border: '1.5px solid var(--ink)', borderRadius: 11, marginTop: 16, overflow: 'hidden' }}>
-                    {[['START', item.availableFrom], ['END', item.availableTo]].map(([k, v], i) => (
-                      <div key={k} style={{ flex: 1, padding: '11px 13px', borderRight: i === 0 ? '1.5px solid var(--ink)' : 'none' }}>
-                        <div className="mono" style={{ fontSize: 9.5, color: 'var(--label)' }}>{k}</div>
-                        <div style={{ fontSize: 13.5, marginTop: 3 }}>{v || '—'}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    className="btn btn-primary btn-block"
-                    style={{ marginTop: 14 }}
-                    onClick={() => navigate(`/book/${item.id}`)}
-                  >
-                    Request to book
-                  </button>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
-                    <span className="chip" style={{ flex: 1, justifyContent: 'center', gap: 6 }}>
-                      <SaveHeart id={item.id} round={false} /> Save
-                    </span>
-                    <Link to="/messages" className="chip" style={{ flex: 1, justifyContent: 'center' }}>
-                      Message
-                    </Link>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', marginTop: 12, lineHeight: 1.4 }}>
-                    You won't be charged yet. Host approves within 24h.
-                  </div>
-                </div>
+              <div className="mt-5 rounded-xl bg-stone-50 p-4 text-[13px] leading-relaxed text-stone-500">
+                Showing an approximate area only — the exact address is shared after the host
+                confirms your booking.
               </div>
             </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
+          </div>
 
-function Section({ title, children }) {
-  return (
-    <div style={{ marginTop: 26 }}>
-      <div className="display" style={{ fontSize: 19, marginBottom: 11 }}>{title}</div>
-      {children}
+          <aside className="h-fit lg:sticky lg:top-20">
+            <div className="card p-5">
+              <div className="flex items-baseline gap-1.5">
+                <span className="display text-3xl">${formatPrice(item.price)}</span>
+                <span className="text-sm text-stone-400">{item.priceUnit}</span>
+              </div>
+              <p className="mt-1 font-mono text-[11.5px] text-stone-400">
+                {formatDateRange(item.availableFrom, item.availableTo)}
+              </p>
+              {isOwner ? (
+                <div className="mt-4">
+                  <StatusBadge status={item.notAccepting ? 'paused' : 'active'} />
+                  <p className="mt-2 text-[13px] text-stone-500">This is your listing.</p>
+                  <Link to="/profile" className="btn btn-block mt-3">Manage listing</Link>
+                </div>
+              ) : item.notAccepting ? (
+                <div className="mt-4 rounded-xl bg-stone-50 p-3 text-[13px] text-stone-500">
+                  This host has paused new requests for now. Save it and check back later.
+                </div>
+              ) : (
+                <button className="btn btn-primary btn-block mt-4" onClick={() => navigate(`/book/${item.id}`)}>
+                  Request to book
+                </button>
+              )}
+              <div className="mt-2 flex gap-2">
+                <span className="btn flex-1 !px-2">
+                  <SaveButton id={item.id} /> Save
+                </span>
+                <Link to="/messages" className="btn flex-1">Message</Link>
+              </div>
+              <p className="mt-3 text-center text-xs leading-relaxed text-stone-400">
+                You won&apos;t be charged yet.
+                <br />Host approves within ~24h.
+              </p>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
-  );
-}
-
-function GalleryArrow({ side, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-label={side === 'left' ? 'Previous photo' : 'Next photo'}
-      style={{
-        position: 'absolute',
-        top: '50%',
-        [side]: 16,
-        transform: 'translateY(-50%)',
-        width: 42,
-        height: 42,
-        border: '1.5px solid var(--ink)',
-        borderRadius: '50%',
-        background: 'var(--tint)',
-        display: 'grid',
-        placeItems: 'center',
-        fontSize: 18,
-        cursor: 'pointer',
-      }}
-    >
-      {side === 'left' ? '‹' : '›'}
-    </button>
   );
 }
