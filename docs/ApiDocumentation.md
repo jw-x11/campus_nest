@@ -205,6 +205,7 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
   "title": "Dry garage corner near campus",
   "description": "...",
   "city": "Springfield",
+  "state": "IL",
   "postal_code": "12345",
   "approx_location": { "lat": 40.12, "lng": -74.5 },
   "price": 60.00,
@@ -221,7 +222,7 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
 }
 ```
 > **Privacy:** never return exact `address`, `latitude`, or `longitude` to non-confirmed
-> renters. Return only `city`, `postal_code`, and a **fuzzed** `approx_location` (snapped to
+> renters. Return only `city`, `state`, `postal_code`, and a **fuzzed** `approx_location` (snapped to
 > the block, computed on the fly). Exact address is revealed only after a booking is confirmed.
 
 ### 3.1 `POST /spaces/post`
@@ -236,6 +237,7 @@ Create a listing.
   "description": "6ft x 4ft, dry, self-serve access M-F 9-6",
   "address": "123 Main St",
   "city": "Springfield",
+  "state": "IL",
   "postal_code": "12345",
   "price": 60.00,
   "price_type": "recurring_per_month",
@@ -245,8 +247,9 @@ Create a listing.
 ```
 - **Response `201`:** `SpaceResponse` (`owner_id` = caller).
 - **Logic**
-  - Geocode `address` via **Mapbox Geocoding API** → store exact `latitude`/`longitude`
-    server-side (never returned).
+  - Geocode `address` via **OpenStreetMap Nominatim** (`GET /search` with `street`, `city`,
+    `postalcode`, `format=jsonv2`, `limit=1`) → store exact `latitude`/`longitude`
+    server-side (never returned). Empty result → `GEOCODE_FAILED`.
   - `is_active` = true; set `expired_at` = now + 1 month (auto-hidden after, renewable; auto
     delete at 3 months).
 - **Errors:** `400 GEOCODE_FAILED`, `422` validation (e.g. `available_to < available_from`).
@@ -259,6 +262,7 @@ Search/list with filters. **Cached in Redis.**
   | Param | Type | Notes |
   |---|---|---|
   | `city` | string | exact/indexed match |
+  | `state` | string | case-insensitive exact match (e.g. `il`) |
   | `type` | enum | space type filter |
   | `available_from` | date | overlap with listing window |
   | `available_to` | date | overlap with listing window |
@@ -334,7 +338,7 @@ The caller's own listings, for managing them.
 {
   "total_count": 3, "has_more": true, "total_pages": 2,
   "spaces": [{
-    "id": 1, "title": "...", "city": "Springfield", "price": 60.00,
+    "id": 1, "title": "...", "city": "Springfield", "state": "IL", "price": 60.00,
     "price_type": "recurring_per_month", "thumbnail_url": "https://seaweedfs/.../1-thumb.jpg",
     "available_from": "2026-06-01", "available_to": "2026-08-15",
     "is_active": true, "not_accepting": false, "expired_at": "2026-07-22T00:00:00Z",

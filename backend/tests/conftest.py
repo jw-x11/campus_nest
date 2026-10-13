@@ -235,6 +235,7 @@ def space_payload(**overrides) -> dict:
         "description": "Room for about ten boxes",
         "address": "1 Main St",
         "city": "Berkeley",
+        "state": "CA",
         "postal_code": "94704",
         "price": 50.0,
         "price_type": "single",

@@ -65,6 +65,7 @@ def space_search_cache_key(filters: SpaceSearchQuery) -> str:
         include={
             "keyword",
             "city",
+            "state",
             "postal_code",
             "available_from",
             "available_to",
@@ -76,6 +77,7 @@ def space_search_cache_key(filters: SpaceSearchQuery) -> str:
     )
     payload["keyword"] = _folded(payload["keyword"])
     payload["city"] = _folded(payload["city"])
+    payload["state"] = _folded(payload["state"])
     payload["postal_code"] = _folded(payload["postal_code"])
     payload["sort_by"], payload["sort_order"] = _effective_sort(filters)
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))

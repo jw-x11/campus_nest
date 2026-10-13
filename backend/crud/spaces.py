@@ -24,6 +24,7 @@ async def create_space(db: AsyncSession, body: SpaceInfoRequest, user_id: UUID):
         description=body.description,
         address=body.address,
         city=body.city,
+        state=body.state,
         postal_code=body.postal_code,
         latitude=body.latitude,
         longitude=body.longitude,
@@ -232,6 +233,8 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
             Space.address.ilike(pattern)))
     if filters.city:
         conditions.append(Space.city.ilike(filters.city))
+    if filters.state:
+        conditions.append(Space.state.ilike(filters.state))
     if filters.postal_code:
         conditions.append(Space.postal_code.ilike(f"{filters.postal_code}%"))
     # A listing matches only if its window covers the whole range the renter asked for.
@@ -249,7 +252,7 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
     if filters.sort_by == "price":
         sort_columns, default_order = [Space.price], "asc"
     elif filters.sort_by == "location":
-        sort_columns, default_order = [Space.city, Space.postal_code, Space.address], "asc"
+        sort_columns, default_order = [Space.state, Space.city, Space.postal_code, Space.address], "asc"
     elif filters.sort_by == "post_date":
         sort_columns, default_order = [Space.created_at], "desc"
     else:

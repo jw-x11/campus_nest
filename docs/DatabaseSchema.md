@@ -88,6 +88,7 @@ Listings for storage spaces (closet, shelf, garage, basement, room) available to
 | `description`    | text          | YES      | —                   |                                                             |
 | `address`        | text          | NO       | —                   | Street address (private; not shown until booking confirmed) |
 | `city`           | text          | NO       | —                   | Indexed for search                                          |
+| `state`          | text          | YES      | —                   | State/province (e.g. `CA`); case-insensitive search filter  |
 | `postal_code`    | text          | YES      | —                   | ZIP/postal code                                             |
 | `latitude`       | numeric(9,6)  | YES      | —                   | Exact geocoded lat (server-side only)                       |
 | `longitude`      | numeric(9,6)  | YES      | —                   | Exact geocoded long (server-side only)                      |
@@ -111,6 +112,7 @@ CREATE TABLE spaces (
     description    text,
     address        text          NOT NULL,
     city           text          NOT NULL,
+    state          text,
     postal_code    text,
     latitude       numeric(9,6),
     longitude      numeric(9,6),
@@ -132,7 +134,9 @@ CREATE INDEX idx_spaces_dates   ON spaces (available_from, available_to);
 CREATE INDEX idx_spaces_lat_lng ON spaces (latitude, longitude);
 ```
 
-> **Geo notes:** `latitude`/`longitude` are populated by the Mapbox Geocoding API on create/update and are never returned to renters before a booking is confirmed. A fuzzed/approximate location (snapped to ~the block) is computed on the fly at request time from the exact coordinates — no stored approximate columns needed. For proximity/"near campus" search, filter on a bounding box over `latitude`/`longitude`, or enable **PostGIS** and add a `location geography(Point,4326)` generated column to use `ST_DWithin` for accurate radius queries.
+> **Migration — `state`.** Databases created before this column existed need `ALTER TABLE spaces ADD COLUMN state text;`. Existing rows stay `NULL`.
+
+> **Geo notes:** `latitude`/`longitude` are populated by the OpenStreetMap Nominatim geocoding API on create/update and are never returned to renters before a booking is confirmed. A fuzzed/approximate location (snapped to ~the block) is computed on the fly at request time from the exact coordinates — no stored approximate columns needed. For proximity/"near campus" search, filter on a bounding box over `latitude`/`longitude`, or enable **PostGIS** and add a `location geography(Point,4326)` generated column to use `ST_DWithin` for accurate radius queries.
 
 ---
 

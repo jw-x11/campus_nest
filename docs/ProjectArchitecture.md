@@ -52,7 +52,7 @@
 | Auth             | Google Login + UUID + bcrypt password |
 | Payments         | Stripe API (Phase 2)              |
 | Real-Time        | WebSockets + Redis Pub/Sub        |
-| Maps & Geocoding | Mapbox (GL JS + Geocoding API)    |
+| Maps & Geocoding | OpenStreetMap (Leaflet + OSM tiles + Nominatim geocoding) |
 | Analytics (marketing) | Google Analytics (GA4)       |
 | Analytics (business)  | Custom Postgres queries + Recharts |
 | Testing          | pytest + httpx                    |
@@ -120,10 +120,17 @@ if you need custom tokens).
 
 **Maps & Geocoding**
 
-- **Recommendation: Mapbox** — use the Geocoding API to convert listing addresses to lat/long on `POST /spaces`, and Mapbox GL JS for the map view (Phase 2; list view only for MVP). Chosen for generous free tier (~100K loads/mo), low cost at scale, and easy approximate-location rendering.
+- **Choice: OpenStreetMap** — free, no API key, open data. Three pieces:
+  - **Geocoding (backend):** `GET https://nominatim.openstreetmap.org/search` converts a listing address to lat/long on `POST /spaces/post` and `PUT /spaces/{id}`. Use structured params (`street`, `city`, `postalcode`, `countrycodes`) with `format=jsonv2&limit=1`; an empty result array → `400 GEOCODE_FAILED`. Response `lat`/`lon` are strings — cast to float.
+  - **Reverse geocoding (optional):** `GET https://nominatim.openstreetmap.org/reverse?lat=..&lon=..&format=jsonv2` turns coordinates back into an address (e.g., "drop a pin" when posting a space).
+  - **Map tiles (frontend):** `https://tile.openstreetmap.org/{z}/{x}/{y}.png` rendered with **Leaflet** (`react-leaflet`) for the map view (Phase 2; list view only for MVP).
+- **Usage-policy requirements** (public OSM servers):
+  - Nominatim: max **1 request/second**, send an identifying `User-Agent` (e.g., `CampusNest/1.0 (contact@email)`), cache results, and **no search-as-you-type autocomplete**. Geocode only on create/update, never per search request.
+  - Tiles: show the attribution `© OpenStreetMap contributors` on the map; the public tile server is for light use only.
+  - For production, switch to a hosted OSM provider (e.g., MapTiler, Stadia Maps, LocationIQ, Geoapify) or self-host Nominatim/tiles. Only the base URLs (and an API key) change; keep them in env vars (`NOMINATIM_URL`, `VITE_MAP_TILE_URL`).
 - For privacy, store exact lat/long server-side but only return a **fuzzed/approximate** location (e.g., a circle over the block) to renters until a booking is confirmed.
 - Proximity/"near campus" search: store `latitude`/`longitude` on the spaces table and filter with a bounding-box or PostGIS `ST_DWithin` query; campus coordinates can be a small lookup table.
-- Alternatives: **Google Maps Platform** (best autocomplete/geocoding accuracy, higher cost) or **Leaflet + OpenStreetMap/Nominatim** (fully free, but rate-limited geocoding and self-hosting recommended for production).
+- Alternatives: **Mapbox** (polished vector maps, free tier then usage-based pricing) or **Google Maps Platform** (best autocomplete/geocoding accuracy, highest cost).
 
 **Payments (Phase 2)**
 

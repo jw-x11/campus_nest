@@ -39,6 +39,7 @@ class Space(Base):
 
     address: Mapped[str] = mapped_column(Text, nullable=False)
     city: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str | None] = mapped_column(Text, nullable=True)
     postal_code: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     latitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)

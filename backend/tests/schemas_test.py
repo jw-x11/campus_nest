@@ -66,6 +66,7 @@ class TestSpaceSchemas:
         space = self._space()
         assert space.price == 0.0
         assert space.description is None
+        assert space.state is None
 
     @pytest.mark.parametrize(
         "overrides",
@@ -75,6 +76,7 @@ class TestSpaceSchemas:
             {"price_type": "hourly"},
             {"postal_code": "12345678901"},
             {"description": ""},
+            {"state": ""},
         ],
     )
     def test_space_info_rejects_invalid_fields(self, overrides):

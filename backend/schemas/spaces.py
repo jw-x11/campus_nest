@@ -13,6 +13,7 @@ class SpaceInfoRequest(BaseModel):
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
     city: str
+    state: Annotated[str | None, Field(min_length=1, max_length=100)] = None
     postal_code: Annotated[str | None, Field(min_length=1, max_length=10)]
     latitude: float | None = None
     longitude: float | None = None
@@ -40,6 +41,8 @@ class SpaceItem(BaseModel):
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
     city: str
+    # Defaulted so detail entries cached before this field existed still validate.
+    state: str | None = None
     postal_code: Annotated[str | None, Field(min_length=1, max_length=10)]
     latitude: float | None = None
     longitude: float | None = None
@@ -71,6 +74,7 @@ class SpaceItemReduced(BaseModel):
     space_id: Annotated[int, Field(alias="id", ge=1)]
     title: Annotated[str, Field(min_length=1, max_length=255)]
     city: str
+    state: str | None = None
     price: Annotated[float, Field(ge=0)] = 0.0
     price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
     thumbnail_url: str | None = None
@@ -90,6 +94,7 @@ class SpaceSearchQuery(BaseModel):
 
     keyword: Annotated[str | None, Field(max_length=255, alias="kw")] = None # no keyword for then search by location
     city: str | None = None # only one of city or postal_code is required
+    state: Annotated[str | None, Field(max_length=100)] = None
     postal_code: Annotated[str | None, Field(alias="pc", max_length=10)] = None
     available_from: Annotated[date | None, Field(alias="from")] = None
     available_to: Annotated[date | None, Field(alias="to")] = None

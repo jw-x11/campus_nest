@@ -20,5 +20,5 @@ Campus Nest is a student-focused marketplace for renting unused space as storage
 - PostgreSQL
 - Redis
 - SeaweedFS
-- Mapbox for maps (in progress)
+- OpenStreetMap for maps (Leaflet + Nominatim geocoding, in progress)
 

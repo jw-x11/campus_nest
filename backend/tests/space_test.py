@@ -29,7 +29,8 @@ class TestCreate:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert set(data) == {
-            "id", "owner_id", "title", "description", "address", "city", "postal_code", "latitude", "longitude",
+            "id", "owner_id", "title", "description", "address", "city", "state", "postal_code", "latitude",
+            "longitude",
             "price", "price_type", "available_from", "available_to", "is_active", "not_accepting", "expired_at",
             "view_count", "images", "created_at", "updated_at",
         }
@@ -187,7 +188,7 @@ class TestSearch:
     async def test_reduced_item_shape(self, client, register, create_space):
         await create_space(await register())
         [item] = (await search(client))["spaces"]
-        assert set(item) == {"id", "title", "city", "price", "price_type", "thumbnail_url", "available_from",
+        assert set(item) == {"id", "title", "city", "state", "price", "price_type", "thumbnail_url", "available_from",
                              "available_to", "is_active", "not_accepting", "expired_at", "view_count", "updated_at"}
         assert "address" not in item
 
@@ -195,6 +196,8 @@ class TestSearch:
         "params, expected_titles",
         [
             ({"city": "oakland"}, {"Oakland loft"}),
+            ({"state": "ca"}, {"Berkeley closet", "Berkeley garage", "Oakland loft"}),
+            ({"state": "NY"}, set()),
             ({"kw": "LOFT"}, {"Oakland loft"}),
             ({"kw": "bike"}, {"Berkeley closet"}),            # description match
             ({"kw": "Telegraph"}, {"Berkeley garage"}),       # address match
