@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { Layer, Map, NavigationControl, Source } from 'react-map-gl/maplibre';
 import { maplibregl, MAP_STYLE } from '../maplibre.js';
 
-// The listing page promises "an approximate area only", so the map shows a circle, not a pin.
+// The exact address is private until a booking is confirmed, so the map shows an approximate
+// area (a circle), not a pin.
 // The centre is snapped to a grid about 440 m wide, and the circle is big enough to always
 // contain the real spot, so the circle's centre does not give the address away.
 const GRID_DEGREES = 0.004;

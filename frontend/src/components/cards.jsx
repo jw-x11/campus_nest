@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { HeartIcon, BoxIcon, PinIcon } from './icons.jsx';
+import { HeartIcon, BoxIcon, PinIcon, CalendarIcon } from './icons.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { formatPrice } from '../api.js';
 
@@ -75,8 +75,14 @@ export function SpaceCard({ item }) {
         <h3 className="truncate text-[15px] font-semibold">{item.title}</h3>
         <p className="mt-1 flex items-center gap-1 truncate font-mono text-[11.5px] text-stone-500">
           <PinIcon size={12} />
-          {item.subtitle || item.city || '—'}
+          {item.location || '—'}
         </p>
+        {item.dateRange && (
+          <p className="mt-0.5 flex items-center gap-1 truncate font-mono text-[11.5px] text-stone-500">
+            <CalendarIcon size={12} />
+            {item.dateRange}
+          </p>
+        )}
         <div className="mt-3 flex items-baseline justify-between">
           <span className="display text-xl">
             ${formatPrice(item.price)}

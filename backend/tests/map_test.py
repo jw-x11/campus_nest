@@ -33,7 +33,7 @@ class TestSearch:
     def real_search(self, monkeypatch):
         monkeypatch.setattr(crud.map, "_search", REAL_SEARCH)
         monkeypatch.setattr(crud.map, "MIN_REQUEST_INTERVAL", 0)
-        monkeypatch.setattr(map_config, "MAP_URL", "https://geo.example.test")
+        monkeypatch.setattr(map_config, "GEOCODER_URL", "https://geo.example.test")
         monkeypatch.setattr(map_config, "GEOCODER_API_KEY", "")
         monkeypatch.setattr(map_config, "MAP_USER_AGENT", "CampusNestTest/1.0")
 
@@ -68,7 +68,7 @@ class TestSearch:
 
     async def test_key_is_not_sent_to_the_public_openstreetmap_server(self, monkeypatch):
         monkeypatch.setattr(map_config, "GEOCODER_API_KEY", "secret")
-        monkeypatch.setattr(map_config, "MAP_URL", "https://nominatim.openstreetmap.org")
+        monkeypatch.setattr(map_config, "GEOCODER_URL", "https://nominatim.openstreetmap.org")
         requests = self.use_transport(monkeypatch, lambda r: httpx.Response(200, json=[]))
         await crud.map._search({"city": "Berkeley"})
         assert "key" not in requests[0].url.params
@@ -295,7 +295,7 @@ class TestAutocompleteRequest:
     def real_lookup(self, monkeypatch):
         monkeypatch.setattr(crud.map, "_autocomplete", REAL_AUTOCOMPLETE)
         monkeypatch.setattr(map_config, "AUTOCOMPLETE_URL", "https://auto.example.test/v1/autocomplete")
-        monkeypatch.setattr(map_config, "GEOCODER_API_KEY", "secret-key")
+        monkeypatch.setattr(map_config, "AUTOCOMPLETE_API_KEY", "secret-key")
         monkeypatch.setattr(map_config, "MAP_COUNTRY_CODES", "us, CA")
 
     def use_transport(self, monkeypatch, handler) -> list[httpx.Request]:
@@ -318,7 +318,7 @@ class TestAutocompleteRequest:
         assert request.url.params["apiKey"] == "secret-key"
 
     async def test_needs_an_api_key(self, monkeypatch):
-        monkeypatch.setattr(map_config, "GEOCODER_API_KEY", "")
+        monkeypatch.setattr(map_config, "AUTOCOMPLETE_API_KEY", "")
         requests = self.use_transport(monkeypatch, lambda r: httpx.Response(200, json={"results": []}))
         with pytest.raises(GeocodeUnavailable):
             await crud.map._autocomplete("6689 El Colegio")

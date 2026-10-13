@@ -48,7 +48,7 @@ async def _search(params: dict[str, str]) -> list[dict]:
 
     query = {**params, "format": "jsonv2", "limit": "1"}
     # The public OpenStreetMap server has no use for a key, so do not hand it ours.
-    if map_config.GEOCODER_API_KEY and "nominatim.openstreetmap.org" not in map_config.MAP_URL:
+    if map_config.GEOCODER_API_KEY and "nominatim.openstreetmap.org" not in map_config.GEOCODER_URL:
         query["key"] = map_config.GEOCODER_API_KEY
 
     async with _throttle_lock:
@@ -61,7 +61,7 @@ async def _search(params: dict[str, str]) -> list[dict]:
                 timeout=REQUEST_TIMEOUT,
                 headers={"User-Agent": map_config.MAP_USER_AGENT},
             ) as client:
-                response = await client.get(f"{map_config.MAP_URL}/search", params=query)
+                response = await client.get(f"{map_config.GEOCODER_URL}/search", params=query)
                 response.raise_for_status()
                 results = response.json()
         except (httpx.HTTPError, ValueError) as e:
@@ -118,8 +118,8 @@ async def geocode_address(
 
 async def _autocomplete(text: str) -> list[dict]:
     """One call to the autocomplete API. Raises GeocodeUnavailable on failure."""
-    if not map_config.GEOCODER_API_KEY:
-        raise GeocodeUnavailable("Address autocomplete needs GEOCODER_API_KEY")
+    if not map_config.AUTOCOMPLETE_API_KEY:
+        raise GeocodeUnavailable("Address autocomplete needs AUTOCOMPLETE_API_KEY")
 
     query = {
         "text": text,
@@ -127,7 +127,7 @@ async def _autocomplete(text: str) -> list[dict]:
         "lang": "en",
         "limit": str(AUTOCOMPLETE_FETCH_LIMIT),
         "filter": "countrycode:" + ",".join(c.strip().lower() for c in map_config.MAP_COUNTRY_CODES.split(",")),
-        "apiKey": map_config.GEOCODER_API_KEY,
+        "apiKey": map_config.AUTOCOMPLETE_API_KEY,
     }
     try:
         async with httpx.AsyncClient(

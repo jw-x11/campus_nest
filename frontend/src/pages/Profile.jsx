@@ -61,8 +61,11 @@ function ListingCard({ item, onChanged }) {
           {item.title}
         </Link>
         <p className="mt-1 truncate font-mono text-[11.5px] text-stone-500">
-          {item.subtitle || item.city || '—'}
+          {item.location || '—'}
         </p>
+        {item.dateRange && (
+          <p className="mt-0.5 truncate font-mono text-[11.5px] text-stone-500">{item.dateRange}</p>
+        )}
         <div className="mt-3 flex items-baseline justify-between">
           <span className="display text-xl">
             ${formatPrice(item.price)}

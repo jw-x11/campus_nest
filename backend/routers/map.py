@@ -14,6 +14,7 @@ api_map = APIRouter()
 # Preview where an address lands on the map, for example before the listing form is submitted.
 @api_map.get("/geocode")
 async def geocode(
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     address: Annotated[str, Query(min_length=1, max_length=255)],
     city: Annotated[str, Query(min_length=1, max_length=100)],
     state: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
@@ -33,6 +34,7 @@ async def geocode(
 # Street-address suggestions for the listing form while the user types.
 @api_map.get("/autocomplete")
 async def autocomplete(
+    user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     text: Annotated[str, Query(min_length=3, max_length=255)],
 ):
     try:

@@ -54,7 +54,7 @@ function LocationMap({ latitude, longitude }) {
 
   return (
     <>
-      <div className="group relative mt-2 h-48 overflow-hidden rounded-xl border border-stone-200">
+      <div className="relative mt-2 h-48 overflow-hidden rounded-xl border border-stone-200">
         {/* Less padding than the pop-up so the circle keeps the same size on the shorter map. */}
         <AreaMap latitude={latitude} longitude={longitude} padding={32} />
         <button
@@ -62,11 +62,7 @@ function LocationMap({ latitude, longitude }) {
           onClick={() => setOpen(true)}
           aria-label="Open the map"
           className="absolute inset-0 cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2b2b2b]"
-        >
-          <span className="absolute bottom-3 right-3 rounded-full bg-white/95 px-3 py-1.5 text-xs font-medium text-stone-700 shadow-md transition group-hover:bg-white">
-            Click to enlarge
-          </span>
-        </button>
+        />
       </div>
 
       {open && (
@@ -412,10 +408,6 @@ export default function SpaceDetail() {  const { id } = useParams();
                   <LocationMap latitude={item.latitude} longitude={item.longitude} />
                 </>
               )}
-              <div className="mt-5 rounded-xl bg-stone-50 p-4 text-[13px] leading-relaxed text-stone-500">
-                Showing an approximate area only — the exact address is shared after the host
-                confirms your booking.
-              </div>
             </div>
           </div>
 

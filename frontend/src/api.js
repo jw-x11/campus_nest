@@ -178,6 +178,9 @@ export function mapSpace(space) {
     ownerId: space.owner_id ?? space.ownerId ?? null,
     createdAt: space.created_at ?? space.createdAt,
     updatedAt: space.updated_at ?? space.updatedAt,
+    // "Goleta, CA" and "Oct 12, 2026 – Nov 12, 2026", for cards that show them on separate lines.
+    location: [city, space.state].filter(Boolean).join(', '),
+    dateRange: formatDateRange(from, to),
     subtitle: [[city, space.state].filter(Boolean).join(', '), formatDateRange(from, to)]
       .filter(Boolean)
       .join(' · '),

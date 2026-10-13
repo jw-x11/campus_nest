@@ -252,10 +252,10 @@ Create a listing.
 ```
 - **Response `201`:** `SpaceResponse` (`owner_id` = caller).
 - **Logic**
-  - Geocode `address` via **OpenStreetMap Nominatim** (base URL from the `MAP_URL` env var, so it
-    can be switched to a Nominatim-compatible provider such as LocationIQ; `GET {MAP_URL}/search`
+  - Geocode `address` via **OpenStreetMap Nominatim** (base URL from the `GEOCODER_URL` env var, so it
+    can be switched to a Nominatim-compatible provider such as LocationIQ; `GET {GEOCODER_URL}/search`
     with `street`, `city`, `state`, `postalcode`, `countrycodes`, `format=jsonv2`, `limit=1`, plus
-    `key` when `GEOCODER_API_KEY` is set) → store `latitude`/`longitude`. Empty result →
+    `key` when `GEOCODER_API_KEY` is set and the provider is not the public Nominatim server) → store `latitude`/`longitude`. Empty result →
     `400 GEOCODE_FAILED`.
   - Coordinates sent by the client (`latitude` and `longitude` together) are kept as-is and skip
     geocoding. Results are cached in Redis (30 days for matches, 1 hour for misses) and requests
@@ -407,6 +407,39 @@ Router file: `backend/routers/map.py` (mounted at `/api/map`).
 - **Logic:** same geocoder, cache, and rate limit as §3.1. Not meant for search-as-you-type: public
   Nominatim forbids autocomplete.
 - **Errors:** `400 GEOCODE_FAILED` (no match, or invalid query), `401`, `503 GEOCODER_UNAVAILABLE`.
+
+### 3.11 `GET /map/autocomplete`
+Street-address suggestions while the user types in the listing form.
+
+- **Auth:** required
+- **Query params:** `text` (required, 3–255 characters)
+- **Response `200`:** up to 5 suggestions, best match first. Each carries what the form fields need,
+  including coordinates, so a listing created from a suggestion can send them as `latitude` and
+  `longitude` and skip geocoding (§3.1).
+```json
+{
+  "code": 200,
+  "message": "Suggestions found",
+  "data": {
+    "suggestions": [
+      {
+        "label": "6689 El Colegio Road, Isla Vista, CA 93117",
+        "address": "6689 El Colegio Road",
+        "city": "Isla Vista",
+        "state": "CA",
+        "postal_code": "93117",
+        "latitude": 34.417199,
+        "longitude": -119.861931
+      }
+    ]
+  }
+}
+```
+- **Logic:** calls Geoapify's autocomplete API (`AUTOCOMPLETE_URL`) with `AUTOCOMPLETE_API_KEY`, limited
+  to `MAP_COUNTRY_CODES`. Results that are not street addresses (no street or city) and duplicates
+  are dropped. Results are cached in Redis for a day. Public Nominatim cannot be used for this.
+- **Errors:** `400` invalid query, `401`, `503 GEOCODER_UNAVAILABLE` (no `AUTOCOMPLETE_API_KEY`
+  configured, or the provider failed). The frontend treats any error as "no suggestions".
 
 > **Phase 2 — Map view.** `GET /spaces/map?bbox=w,s,e,n&<filters>` returns GeoJSON of listings
 > within the bounding box + a true total count, capped at ~200–300 markers with fuzzed

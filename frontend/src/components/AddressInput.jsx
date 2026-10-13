@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { autocompleteAddress } from '../api.js';
 
 const MIN_CHARS = 3;
-const DELAY_MS = 1500;
+const DELAY_MS = 1000;
 
 /**
  * A street-address input that suggests addresses while the user types.

@@ -4,19 +4,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Geocoding: turns a listing's address into coordinates.
 # Base URL of the geocoding service. Any Nominatim-compatible provider works; the public
 # server is fine for light use (max 1 request/second, identifying User-Agent, cache results).
-MAP_URL = os.getenv("MAP_URL", "https://nominatim.openstreetmap.org").rstrip("/")
+GEOCODER_URL = os.getenv("GEOCODER_URL", "https://nominatim.openstreetmap.org").rstrip("/")
 
 # Sent as the `key` query parameter when set. Leave empty for the public Nominatim server.
-# It is also the key for address autocomplete below, which needs a Geoapify key.
 GEOCODER_API_KEY = os.getenv("GEOCODER_API_KEY", "")
 
-# Address autocomplete (suggestions while typing). The public Nominatim server forbids this,
-# so it uses Geoapify's autocomplete API with GEOCODER_API_KEY. Without a key it is switched off.
+# Address autocomplete: suggestions while the user types. It is a separate service from the
+# geocoder, because the public Nominatim server forbids search-as-you-type. The request format
+# is Geoapify's (`text`, `filter`, `apiKey`, a `results` list); the default URL is theirs.
+# Without AUTOCOMPLETE_API_KEY autocomplete is switched off.
 AUTOCOMPLETE_URL = os.getenv(
     "AUTOCOMPLETE_URL", "https://api.geoapify.com/v1/geocode/autocomplete"
 ).rstrip("/")
+AUTOCOMPLETE_API_KEY = os.getenv("AUTOCOMPLETE_API_KEY", "")
 
 # Nominatim rejects requests that do not identify the application.
 MAP_USER_AGENT = os.getenv("MAP_USER_AGENT", "CampusNest/1.0")
