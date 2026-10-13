@@ -19,6 +19,12 @@ MISS_CACHE_TTL = HOUR
 MIN_REQUEST_INTERVAL = 1.1
 REQUEST_TIMEOUT = 10.0
 
+# The same suggestions are asked for by many users typing the same street, so they are cached.
+AUTOCOMPLETE_CACHE_TTL = DAY
+AUTOCOMPLETE_LIMIT = 5
+# Ask for more than we show, because results that are not street addresses are dropped.
+AUTOCOMPLETE_FETCH_LIMIT = 10
+
 # Tests replace this to avoid real network calls.
 _transport: httpx.AsyncBaseTransport | None = None
 
@@ -41,7 +47,8 @@ async def _search(params: dict[str, str]) -> list[dict]:
     global _last_request_at
 
     query = {**params, "format": "jsonv2", "limit": "1"}
-    if map_config.GEOCODER_API_KEY:
+    # The public OpenStreetMap server has no use for a key, so do not hand it ours.
+    if map_config.GEOCODER_API_KEY and "nominatim.openstreetmap.org" not in map_config.MAP_URL:
         query["key"] = map_config.GEOCODER_API_KEY
 
     async with _throttle_lock:
@@ -107,3 +114,98 @@ async def geocode_address(
 
     await set_cache(key, {"lat": lat, "lon": lon}, FOUND_CACHE_TTL)
     return lat, lon
+
+
+async def _autocomplete(text: str) -> list[dict]:
+    """One call to the autocomplete API. Raises GeocodeUnavailable on failure."""
+    if not map_config.GEOCODER_API_KEY:
+        raise GeocodeUnavailable("Address autocomplete needs GEOCODER_API_KEY")
+
+    query = {
+        "text": text,
+        "format": "json",
+        "lang": "en",
+        "limit": str(AUTOCOMPLETE_FETCH_LIMIT),
+        "filter": "countrycode:" + ",".join(c.strip().lower() for c in map_config.MAP_COUNTRY_CODES.split(",")),
+        "apiKey": map_config.GEOCODER_API_KEY,
+    }
+    try:
+        async with httpx.AsyncClient(
+            transport=_transport,
+            timeout=REQUEST_TIMEOUT,
+            headers={"User-Agent": map_config.MAP_USER_AGENT},
+        ) as client:
+            response = await client.get(map_config.AUTOCOMPLETE_URL, params=query)
+            response.raise_for_status()
+            body = response.json()
+    except httpx.HTTPStatusError as e:
+        # Not str(e): the message contains the request URL, and so the API key.
+        raise GeocodeUnavailable(f"Autocomplete returned HTTP {e.response.status_code}") from None
+    except (httpx.HTTPError, ValueError) as e:
+        raise GeocodeUnavailable(f"Autocomplete request failed: {type(e).__name__}") from None
+
+    results = body.get("results") if isinstance(body, dict) else None
+    if not isinstance(results, list):
+        raise GeocodeUnavailable("Unexpected autocomplete response")
+    return results
+
+
+def _suggestion(result: dict) -> dict | None:
+    """One autocomplete result as a listing address, or None when it is not a street address."""
+    if not isinstance(result, dict):
+        return None
+    street = result.get("street")
+    city = result.get("city") or result.get("town") or result.get("village") or result.get("hamlet")
+    if not street or not city:
+        return None
+    try:
+        latitude = round(float(result["lat"]), 6)
+        longitude = round(float(result["lon"]), 6)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    address = " ".join(part for part in (result.get("housenumber"), street) if part)
+    state = result.get("state_code") or result.get("state") or None
+    postal_code = result.get("postcode") or None
+    region = " ".join(part for part in (state, postal_code) if part)
+    return {
+        "label": ", ".join(part for part in (address, city, region) if part),
+        "address": address,
+        "city": city,
+        "state": state,
+        "postal_code": postal_code,
+        "latitude": latitude,
+        "longitude": longitude,
+    }
+
+
+async def autocomplete_address(text: str) -> list[dict]:
+    """
+    Street addresses that match what the user has typed so far, best match first.\n
+    Each has the listing's address, city, state, postal code and its coordinates, so a listing
+    created from a suggestion needs no geocoding. Results are cached in Redis.
+    Raises GeocodeUnavailable when autocomplete is not configured or cannot be reached.
+    """
+    text = " ".join(text.split())
+    if len(text) < 3:
+        return []
+    digest = hashlib.sha256(text.lower().encode("utf-8")).hexdigest()
+    key = f"autocomplete:{digest}"
+    cached = await get_json_cache(key)
+    if isinstance(cached, dict) and isinstance(cached.get("suggestions"), list):
+        return cached["suggestions"]
+
+    suggestions: list[dict] = []
+    seen: set[str] = set()
+    for result in await _autocomplete(text):
+        suggestion = _suggestion(result)
+        # The same address often comes back once as a building and once as a business in it.
+        if suggestion is None or suggestion["label"] in seen:
+            continue
+        seen.add(suggestion["label"])
+        suggestions.append(suggestion)
+        if len(suggestions) == AUTOCOMPLETE_LIMIT:
+            break
+
+    await set_cache(key, {"suggestions": suggestions}, AUTOCOMPLETE_CACHE_TTL)
+    return suggestions

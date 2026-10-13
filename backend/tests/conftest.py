@@ -202,6 +202,19 @@ def fake_geocoder(monkeypatch) -> list[dict]:
     return calls
 
 
+@pytest.fixture(autouse=True)
+def fake_autocomplete(monkeypatch) -> list[str]:
+    """Autocomplete finds nothing and makes no network call. Returns the texts it was asked about."""
+    calls: list[str] = []
+
+    async def fake_lookup(text):
+        calls.append(text)
+        return []
+
+    monkeypatch.setattr(crud.map, "_autocomplete", fake_lookup)
+    return calls
+
+
 # --------------------------------------------------------------------------- HTTP client and factories
 
 
