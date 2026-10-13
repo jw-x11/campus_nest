@@ -1,40 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { SearchIcon } from '../components/icons.jsx';
 import { SpaceRow } from '../components/cards.jsx';
+import SpaceMap from '../components/SpaceMap.jsx';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui.jsx';
 import { formatPrice, searchSpaces } from '../api.js';
-
-function pinsFromSpaces(spaces) {
-  const withGeo = spaces.filter((s) => s.latitude != null && s.longitude != null);
-  if (withGeo.length) {
-    const lats = withGeo.map((s) => s.latitude);
-    const lngs = withGeo.map((s) => s.longitude);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-    const latSpan = maxLat - minLat || 1;
-    const lngSpan = maxLng - minLng || 1;
-    return spaces.map((s, i) => {
-      if (s.latitude == null || s.longitude == null) {
-        return { id: s.id, price: `$${formatPrice(s.price)}`, x: 20 + (i % 4) * 18, y: 28 + Math.floor(i / 4) * 20 };
-      }
-      return {
-        id: s.id,
-        price: `$${formatPrice(s.price)}`,
-        x: 10 + ((s.longitude - minLng) / lngSpan) * 80,
-        y: 14 + (1 - (s.latitude - minLat) / latSpan) * 70,
-      };
-    });
-  }
-  return spaces.map((s, i) => ({
-    id: s.id,
-    price: `$${formatPrice(s.price)}`,
-    x: 20 + (i % 4) * 18,
-    y: 28 + Math.floor(i / 4) * 20,
-  }));
-}
 
 export default function MapView() {
   const [spaces, setSpaces] = useState([]);
@@ -58,8 +28,8 @@ export default function MapView() {
     load();
   }, []);
 
-  const pins = useMemo(() => pinsFromSpaces(spaces), [spaces]);
   const selectedItem = spaces[selected];
+  const unmapped = spaces.filter((s) => s.latitude == null || s.longitude == null).length;
 
   return (
     <div className="mx-auto w-full max-w-[1320px] px-4 pb-16 pt-6 sm:px-5">
@@ -94,37 +64,25 @@ export default function MapView() {
           </div>
 
           <div className="relative min-h-[480px] overflow-hidden bg-[#ecebe4] lg:min-h-[560px]">
-            {/* subtle street grid backdrop */}
-            <div
-              className="absolute inset-0 opacity-60"
-              style={{
-                backgroundImage: 'linear-gradient(#dcdcd2 1px, transparent 1px), linear-gradient(90deg, #dcdcd2 1px, transparent 1px)',
-                backgroundSize: '44px 44px',
-              }}
-            />
-            {pins.map((pin, i) => (
-              <button
-                key={pin.id}
-                onClick={() => setSelected(i)}
-                className="absolute z-[1] -translate-x-1/2 -translate-y-full"
-                style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-              >
-                <span className={`block whitespace-nowrap rounded-full border px-3 py-1.5 text-[13px] font-bold shadow-md transition ${
-                  i === selected ? 'border-transparent bg-[#2b2b2b] text-white' : 'border-stone-200 bg-white hover:border-stone-400'
-                }`}>
-                  {pin.price}
-                </span>
-              </button>
-            ))}
+            <div className="absolute inset-0">
+              <SpaceMap
+                spaces={spaces}
+                selectedId={selectedItem?.id}
+                onSelect={(id) => {
+                  const index = spaces.findIndex((s) => s.id === id);
+                  if (index >= 0) setSelected(index);
+                }}
+              />
+            </div>
 
             {selectedItem && (
               <Link
                 to={`/space/${selectedItem.id}`}
-                className="card absolute bottom-14 left-4 z-[2] w-60 p-3 !rounded-2xl shadow-lg transition hover:shadow-xl"
+                className="card absolute bottom-14 left-4 z-[5] w-60 p-3 !rounded-2xl shadow-lg transition hover:shadow-xl"
               >
                 <p className="truncate text-sm font-semibold">{selectedItem.title}</p>
                 <p className="mt-0.5 font-mono text-[11px] text-stone-400">
-                  {selectedItem.city} · {selectedItem.viewCount} views
+                  {[selectedItem.city, selectedItem.state].filter(Boolean).join(', ')} · {selectedItem.viewCount} views
                 </p>
                 <p className="display mt-1">
                   ${formatPrice(selectedItem.price)}
@@ -133,10 +91,11 @@ export default function MapView() {
               </Link>
             )}
 
-            <p className="absolute bottom-4 left-4 z-[2] rounded-full bg-white/90 px-3 py-1.5 font-mono text-[10.5px] text-stone-500 backdrop-blur">
+            <p className="absolute bottom-4 left-4 z-[5] rounded-full bg-white/90 px-3 py-1.5 font-mono text-[10.5px] text-stone-500 backdrop-blur">
               Approximate locations · exact address after booking
+              {unmapped > 0 && ` · ${unmapped} not on the map`}
             </p>
-            <button onClick={load} className="btn btn-sm absolute left-1/2 top-4 z-[2] -translate-x-1/2 shadow-md">
+            <button onClick={load} className="btn btn-sm absolute left-1/2 top-4 z-[5] -translate-x-1/2 shadow-md">
               ⟳ Search this area
             </button>
           </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { BoxIcon, PinIcon, CalendarIcon, XIcon } from '../components/icons.jsx';
 import { SaveButton } from '../components/cards.jsx';
+import AreaMap from '../components/AreaMap.jsx';
 import { Avatar, LoadingState, ErrorState, StatusBadge } from '../components/ui.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import {
@@ -29,6 +30,73 @@ function Arrow({ side, onClick, label }) {
     >
       {side === 'left' ? '‹' : '›'}
     </button>
+  );
+}
+
+// A fixed preview of the listing's area. Clicking it opens a larger map in a pop-up that can be
+// panned and zoomed.
+function LocationMap({ latitude, longitude }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  return (
+    <>
+      <div className="group relative mt-2 h-48 overflow-hidden rounded-xl border border-stone-200">
+        {/* Less padding than the pop-up so the circle keeps the same size on the shorter map. */}
+        <AreaMap latitude={latitude} longitude={longitude} padding={32} />
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Open the map"
+          className="absolute inset-0 cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2b2b2b]"
+        >
+          <span className="absolute bottom-3 right-3 rounded-full bg-white/95 px-3 py-1.5 text-xs font-medium text-stone-700 shadow-md transition group-hover:bg-white">
+            Click to enlarge
+          </span>
+        </button>
+      </div>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+          onClick={() => setOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Map"
+        >
+          <div
+            className="relative h-[80vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <AreaMap latitude={latitude} longitude={longitude} interactive />
+            <button
+              type="button"
+              aria-label="Close map"
+              onClick={() => setOpen(false)}
+              className="absolute left-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-white text-stone-700 shadow-md transition hover:bg-stone-100"
+            >
+              <XIcon size={16} />
+            </button>
+            <p className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-white/95 px-3 py-1.5 text-xs text-stone-600 shadow-md">
+              Approximate area only — drag to pan, scroll or use +/− to zoom
+            </p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -312,23 +380,22 @@ export default function SpaceDetail() {  const { id } = useParams();
                 {!item.isActive && <span className="badge">Hidden</span>}
               </div>
               <h1 className="display mt-3 text-3xl">{item.title}</h1>
-              <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-stone-500">
+              <p className="mb-[18px] mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-stone-500">
                 <span className="inline-flex items-center gap-1.5">
-                  <PinIcon size={13} /> {item.city || '—'}{item.postalCode ? ` · ${item.postalCode}` : ''}
+                  <PinIcon size={13} /> {item.city || '—'}{item.state ? `, ${item.state}` : ''}{item.postalCode ? ` · ${item.postalCode}` : ''}
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <CalendarIcon size={13} /> {formatDateRange(item.availableFrom, item.availableTo) || '—'}
                 </span>
                 <span className="font-mono text-xs text-stone-400">{item.viewCount} views</span>
               </p>
-              <hr className="divider my-5" />
-              <h2 className="font-semibold">About this space</h2>
-              <p className="mt-2 text-[15px] leading-relaxed text-stone-600">
+              <hr className="divider" />
+              <p className="mt-[18px] text-[15px] leading-relaxed text-stone-600">
                 {item.description || 'The host has not added a description yet.'}
               </p>
               <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {[
-                  ['City', item.city || '—'],
+                  ['Location', [item.city, item.state].filter(Boolean).join(', ') || '—'],
                   ['Price', `$${formatPrice(item.price)} ${item.priceUnit}`],
                   ['Available', formatDateRange(item.availableFrom, item.availableTo) || '—'],
                   ['Views', String(item.viewCount)],
@@ -339,6 +406,12 @@ export default function SpaceDetail() {  const { id } = useParams();
                   </div>
                 ))}
               </div>
+              {item.latitude != null && item.longitude != null && (
+                <>
+                  <h2 className="mt-6 font-semibold">Location</h2>
+                  <LocationMap latitude={item.latitude} longitude={item.longitude} />
+                </>
+              )}
               <div className="mt-5 rounded-xl bg-stone-50 p-4 text-[13px] leading-relaxed text-stone-500">
                 Showing an approximate area only — the exact address is shared after the host
                 confirms your booking.

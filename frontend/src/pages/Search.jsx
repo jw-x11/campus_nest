@@ -4,6 +4,7 @@ import { SearchIcon } from '../components/icons.jsx';
 import { SpaceCard } from '../components/cards.jsx';
 import { Field, EmptyState, LoadingState, ErrorState, Pagination } from '../components/ui.jsx';
 import { searchSpaces } from '../api.js';
+import { stateCode, US_STATES } from '../data.js';
 
 const SORTS = [
   { label: 'Newest', sortBy: 'post_date', sortOrder: 'desc' },
@@ -29,6 +30,8 @@ function readFromParams(params) {
     draft: {
       keyword: params.get('kw') || '',
       city: params.get('city') || '',
+      // The dropdown only offers state codes, so a hand-typed "California" in the URL becomes "CA".
+      state: US_STATES.some((s) => s.value === stateCode(params.get('state'))) ? stateCode(params.get('state')) : '',
       postalCode: params.get('pc') || '',
       priceType: params.get('type') || '',
       minPrice: params.get('min') || '',
@@ -45,6 +48,7 @@ function toParams(query, page) {
   const p = {};
   if (query.keyword) p.kw = query.keyword;
   if (query.city) p.city = query.city;
+  if (query.state) p.state = query.state;
   if (query.postalCode) p.pc = query.postalCode;
   if (query.priceType) p.type = query.priceType;
   if (query.minPrice) p.min = query.minPrice;
@@ -84,6 +88,7 @@ export default function Search() {
     searchSpaces({
       keyword: query.keyword || undefined,
       city: query.city || undefined,
+      state: query.state || undefined,
       postalCode: query.postalCode || undefined,
       priceType: query.priceType || undefined,
       minPrice: query.minPrice || undefined,
@@ -122,6 +127,7 @@ export default function Search() {
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (query.city) n++;
+    if (query.state) n++;
     if (query.postalCode) n++;
     if (query.priceType) n++;
     if (query.minPrice || query.maxPrice) n++;
@@ -189,7 +195,7 @@ export default function Search() {
                 className="text-[13px] text-stone-400 hover:text-stone-700"
                 onClick={() => {
                   const cleared = {
-                    keyword: '', city: '', postalCode: '', priceType: '',
+                    keyword: '', city: '', state: '', postalCode: '', priceType: '',
                     minPrice: '', maxPrice: '', availableFrom: '', availableTo: '', sort: SORTS[0],
                   };
                   setDraft(cleared);
@@ -203,6 +209,14 @@ export default function Search() {
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
               <Field label="City">
                 <input className="input" value={draft.city} onChange={(e) => patch({ city: e.target.value })} placeholder="Any city" />
+              </Field>
+              <Field label="State">
+                <select className="input" value={draft.state} onChange={(e) => patch({ state: e.target.value })}>
+                  <option value="">Any state</option>
+                  {US_STATES.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
               </Field>
               <Field label="Postal code">
                 <input className="input" value={draft.postalCode} onChange={(e) => patch({ postalCode: e.target.value })} placeholder="Any" />

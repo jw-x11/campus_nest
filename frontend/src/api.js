@@ -159,6 +159,7 @@ export function mapSpace(space) {
     description: space.description || '',
     address: space.address || '',
     city,
+    state: space.state || '',
     postalCode: space.postal_code ?? space.postalCode ?? '',
     price: Number(space.price) || 0,
     priceType,
@@ -177,7 +178,9 @@ export function mapSpace(space) {
     ownerId: space.owner_id ?? space.ownerId ?? null,
     createdAt: space.created_at ?? space.createdAt,
     updatedAt: space.updated_at ?? space.updatedAt,
-    subtitle: [city, formatDateRange(from, to)].filter(Boolean).join(' · '),
+    subtitle: [[city, space.state].filter(Boolean).join(', '), formatDateRange(from, to)]
+      .filter(Boolean)
+      .join(' · '),
   };
 }
 
@@ -311,13 +314,14 @@ export function uploadAvatar(file) {
   return apiForm('/users/me/avatar', { file, field: 'file' }).then(mapUser);
 }
 
-/* ---------- spaces (real query aliases: kw, pc, from, to, price-type, min, max, pg, pg-size, sort, order) ---------- */
+/* ---------- spaces (real query aliases: kw, state, pc, from, to, price-type, min, max, pg, pg-size, sort, order) ---------- */
 
 export async function searchSpaces(filters = {}) {
   const data = await api('/spaces/all', {
     query: {
       kw: filters.keyword,
       city: filters.city,
+      state: filters.state,
       pc: filters.postalCode,
       from: filters.availableFrom,
       to: filters.availableTo,

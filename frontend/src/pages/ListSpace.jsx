@@ -1,20 +1,49 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Field, LoadingState, ErrorState } from '../components/ui.jsx';
 import { XIcon } from '../components/icons.jsx';
-import { formPriceTypes } from '../data.js';
+import { formPriceTypes, stateCode, US_STATES } from '../data.js';
 import { closeTabOr } from '../utils.js';
 import { createSpace, getSpace, updateSpace, uploadSpaceImages } from '../api.js';
 
 const MAX_IMAGES = 10;
 
 const EMPTY = {
-  title: '', description: '', address: '', city: '', postalCode: '',
+  title: '', description: '', address: '', city: '', state: '', postalCode: '',
   price: '', priceType: 'recurring_per_month', availableFrom: '', availableTo: '',
 };
 
+// One preview URL per picked file. Creating it during render made a new blob URL (and a new
+// image request) on every keystroke in the form, and none of them were ever released.
+const previewUrls = new WeakMap();
+
+function previewUrl(file) {
+  let url = previewUrls.get(file);
+  if (!url) {
+    url = URL.createObjectURL(file);
+    previewUrls.set(file, url);
+  }
+  return url;
+}
+
+function releasePreview(file) {
+  const url = previewUrls.get(file);
+  if (url) {
+    URL.revokeObjectURL(url);
+    previewUrls.delete(file);
+  }
+}
+
 function PhotoPicker({ files, onAdd, onRemove, existingCount }) {
   const remaining = MAX_IMAGES - existingCount - files.length;
+
+  // Release whatever previews are left when the form closes.
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+  useEffect(() => () => filesRef.current.forEach(releasePreview), []);
+
   return (
     <div>
       <div className="mb-1.5 flex items-baseline justify-between">
@@ -27,11 +56,14 @@ function PhotoPicker({ files, onAdd, onRemove, existingCount }) {
         <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
           {files.map((f, i) => (
             <div key={i} className="relative overflow-hidden rounded-xl border border-stone-200">
-              <img src={URL.createObjectURL(f)} alt="" className="aspect-square w-full object-cover" />
+              <img src={previewUrl(f)} alt="" className="aspect-square w-full object-cover" />
               <button
                 type="button"
                 aria-label="Remove photo"
-                onClick={() => onRemove(i)}
+                onClick={() => {
+                  releasePreview(f);
+                  onRemove(i);
+                }}
                 className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white hover:bg-black/80"
               >
                 <XIcon size={12} />
@@ -100,6 +132,7 @@ export default function ListSpace() {
           description: space.description || '',
           address: space.address || '',
           city: space.city || '',
+          state: stateCode(space.state),
           postalCode: space.postalCode || '',
           price: space.price ? String(space.price) : '',
           priceType: space.priceType || 'recurring_per_month',
@@ -125,6 +158,7 @@ export default function ListSpace() {
     description: form.description.trim() || null,
     address: form.address.trim(),
     city: form.city.trim(),
+    state: form.state.trim() || null,
     postal_code: form.postalCode.trim(),
     price: Number(form.price) || 0,
     price_type: form.priceType,
@@ -233,9 +267,21 @@ export default function ListSpace() {
           <Field label="Street address" hint="private until booking confirmed">
             <input className="input" value={form.address} onChange={(e) => patch({ address: e.target.value })} placeholder="1842 Euclid Ave, Apt 3" required />
           </Field>
-          <div className="grid gap-5 sm:grid-cols-[2fr_1fr]">
+          <div className="grid gap-5 sm:grid-cols-[2fr_1fr_1fr]">
             <Field label="City">
               <input className="input" value={form.city} onChange={(e) => patch({ city: e.target.value })} placeholder="Berkeley" required />
+            </Field>
+            <Field label="State">
+              <select className="input" value={form.state} onChange={(e) => patch({ state: e.target.value })}>
+                <option value="">Select…</option>
+                {/* A saved value that is not a US state (an old free-text entry) stays selectable. */}
+                {form.state && !US_STATES.some((s) => s.value === form.state) && (
+                  <option value={form.state}>{form.state}</option>
+                )}
+                {US_STATES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Postal code">
               <input className="input" value={form.postalCode} onChange={(e) => patch({ postalCode: e.target.value })} placeholder="94709" required />
