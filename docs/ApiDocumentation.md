@@ -228,7 +228,8 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
 > **Implementation status:** fuzzing is not built yet. For now `latitude` and `longitude` are
 > returned as stored on the full listing (`GET /spaces/{id}`, `/me`, `/post`, `PUT`) and on
 > every list item (`GET /spaces/all`, `/me`, `/from/{owner_id}`, saved, history) so the map can
-> place pins. Apply the fuzzing above before real launch.
+> place pins. The listing detail page also shows an exact pin at those coordinates (it used to
+> show an approximate circle). Apply the fuzzing above before real launch.
 
 ### 3.1 `POST /spaces/post`
 Create a listing.

@@ -288,6 +288,9 @@ export default function ListSpace() {
               placeholder="Start typing, e.g. 1842 Euclid Ave"
               required
             />
+            <p className="mt-1.5 font-mono text-[11px] text-stone-400">
+              Don't include an apartment or unit number. Enter only the street address.
+            </p>
           </Field>
           <div className="grid gap-5 sm:grid-cols-[2fr_1fr_1fr]">
             <Field label="City">

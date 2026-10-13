@@ -67,9 +67,6 @@ export function SpaceCard({ item }) {
         <div className="absolute left-3 top-3">
           <span className="badge bg-white/90 backdrop-blur">{item.priceTypeLabel}</span>
         </div>
-        <div className="absolute right-3 top-3">
-          <SaveButton id={item.id} />
-        </div>
       </div>
       <div className="p-4">
         <h3 className="truncate text-[15px] font-semibold">{item.title}</h3>
@@ -96,8 +93,8 @@ export function SpaceCard({ item }) {
 }
 
 // Horizontal row — search results, map list, history. By default a click opens the listing;
-// onClick replaces that (the map page zooms to the pin instead). showSave hides the heart.
-export function SpaceRow({ item, onClick, showSave = true }) {
+// onClick replaces that (the map page zooms to the pin instead).
+export function SpaceRow({ item, onClick }) {
   const navigate = useNavigate();
   return (
     <article
@@ -115,12 +112,11 @@ export function SpaceRow({ item, onClick, showSave = true }) {
           {item.notAccepting && <span className="badge">Paused</span>}
         </div>
       </div>
-      <div className="flex flex-none flex-col items-end gap-2">
+      <div className="flex-none">
         <span className="display text-lg">
           ${formatPrice(item.price)}
           <span className="text-xs font-normal text-stone-400">{item.priceUnit}</span>
         </span>
-        {showSave && <SaveButton id={item.id} />}
       </div>
     </article>
   );

@@ -39,6 +39,12 @@ export function storeUser(user) {
   else localStorage.removeItem(USER_KEY);
 }
 
+// Error codes the backend sends as the message, and the text to show the user instead.
+// The original code stays available in ApiError.body.
+const ERROR_MESSAGES = {
+  GEOCODE_FAILED: 'Address not found',
+};
+
 function formatDetail(detail) {
   if (!detail) return '';
   if (typeof detail === 'string') return detail;
@@ -113,7 +119,7 @@ async function doFetch(url, method, body, token) {
       payload?.message ||
       res.statusText ||
       'Request failed';
-    throw new ApiError(message, res.status, payload);
+    throw new ApiError(ERROR_MESSAGES[message] ?? message, res.status, payload);
   }
 
   // Backend envelope: { code, message, data }

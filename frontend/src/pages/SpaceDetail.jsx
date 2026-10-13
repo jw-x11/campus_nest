@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { BoxIcon, PinIcon, CalendarIcon, XIcon } from '../components/icons.jsx';
 import { SaveButton } from '../components/cards.jsx';
-import AreaMap from '../components/AreaMap.jsx';
+import ListingMap from '../components/ListingMap.jsx';
 import { Avatar, LoadingState, ErrorState, StatusBadge } from '../components/ui.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import {
@@ -55,8 +55,7 @@ function LocationMap({ latitude, longitude }) {
   return (
     <>
       <div className="relative mt-2 h-48 overflow-hidden rounded-xl border border-stone-200">
-        {/* Less padding than the pop-up so the circle keeps the same size on the shorter map. */}
-        <AreaMap latitude={latitude} longitude={longitude} padding={32} />
+        <ListingMap latitude={latitude} longitude={longitude} />
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -77,7 +76,7 @@ function LocationMap({ latitude, longitude }) {
             className="relative h-[80vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <AreaMap latitude={latitude} longitude={longitude} interactive />
+            <ListingMap latitude={latitude} longitude={longitude} interactive />
             <button
               type="button"
               aria-label="Close map"
@@ -87,7 +86,7 @@ function LocationMap({ latitude, longitude }) {
               <XIcon size={16} />
             </button>
             <p className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-white/95 px-3 py-1.5 text-xs text-stone-600 shadow-md">
-              Approximate area only — drag to pan, scroll or use +/− to zoom
+              Drag to pan, scroll or use +/− to zoom
             </p>
           </div>
         </div>

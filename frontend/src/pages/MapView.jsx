@@ -106,7 +106,7 @@ export default function MapView() {
                   item.id === selectedId ? 'bg-amber-100/70 shadow-[inset_4px_0_0_#ffd22e]' : 'hover:bg-stone-50'
                 }`}
               >
-                <SpaceRow item={item} showSave={false} onClick={() => select(item)} />
+                <SpaceRow item={item} onClick={() => select(item)} />
               </div>
             ))}
           </div>
