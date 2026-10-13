@@ -3,7 +3,8 @@ import { Map, Marker, NavigationControl } from 'react-map-gl/maplibre';
 import { maplibregl, MAP_STYLE } from '../maplibre.js';
 import { formatPrice } from '../api.js';
 
-const INITIAL_VIEW = { longitude: -98.58, latitude: 39.83, zoom: 3 };
+// Zoom level a clicked pin is brought to, unless the map is already closer.
+const PIN_ZOOM = 15;
 
 function hasCoordinates(space) {
   return space.latitude != null && space.longitude != null;
@@ -12,38 +13,41 @@ function hasCoordinates(space) {
 /**
  * Map of listings, one price pill per listing that has coordinates.
  * spaces: mapped spaces (see mapSpace). selectedId: id of the highlighted listing.
+ * view: { longitude, latitude, zoom } where the map starts. If it changes later, the map flies there.
+ * focus: { longitude, latitude } of a listing to zoom to. Pass a new object each time, even for the
+ * same listing, so that asking again after the user has moved the map zooms back to it.
  * onSelect(id) runs when a pill is clicked.
  */
-export default function SpaceMap({ spaces, selectedId, onSelect }) {
+export default function SpaceMap({ spaces, selectedId, view, focus, onSelect }) {
   const mapRef = useRef(null);
   const [ready, setReady] = useState(false);
+
   const pins = useMemo(() => spaces.filter(hasCoordinates), [spaces]);
 
-  // Zoom to fit every pin whenever the listings change.
+  // Move to a new starting view, for example when the user's location arrives after the map opened.
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map || pins.length === 0) return;
-    if (pins.length === 1) {
-      map.jumpTo({ center: [pins[0].longitude, pins[0].latitude], zoom: 14 });
-      return;
-    }
-    const lngs = pins.map((p) => p.longitude);
-    const lats = pins.map((p) => p.latitude);
-    map.fitBounds(
-      [
-        [Math.min(...lngs), Math.min(...lats)],
-        [Math.max(...lngs), Math.max(...lats)],
-      ],
-      { padding: 70, maxZoom: 15, duration: 0 },
-    );
-  }, [ready, pins]);
+    if (!ready || !map) return;
+    map.flyTo({ center: [view.longitude, view.latitude], zoom: view.zoom, duration: 1200 });
+  }, [ready, view]);
+
+  // Zoom in on the listing the parent asked for.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !focus) return;
+    map.flyTo({
+      center: [focus.longitude, focus.latitude],
+      zoom: Math.max(map.getZoom(), PIN_ZOOM),
+      duration: 800,
+    });
+  }, [ready, focus]);
 
   return (
     <Map
       ref={mapRef}
       mapLib={maplibregl}
       mapStyle={MAP_STYLE}
-      initialViewState={INITIAL_VIEW}
+      initialViewState={view}
       style={{ width: '100%', height: '100%' }}
       onLoad={() => setReady(true)}
     >

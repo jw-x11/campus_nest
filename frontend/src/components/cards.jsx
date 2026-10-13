@@ -95,12 +95,13 @@ export function SpaceCard({ item }) {
   );
 }
 
-// Horizontal row — search results, map list, history.
-export function SpaceRow({ item }) {
+// Horizontal row — search results, map list, history. By default a click opens the listing;
+// onClick replaces that (the map page zooms to the pin instead). showSave hides the heart.
+export function SpaceRow({ item, onClick, showSave = true }) {
   const navigate = useNavigate();
   return (
     <article
-      onClick={() => navigate(`/space/${item.id}`)}
+      onClick={onClick ?? (() => navigate(`/space/${item.id}`))}
       className="clickable flex items-center gap-4 border-b border-stone-100 px-5 py-4 transition last:border-0 hover:bg-stone-50"
     >
       <Photo item={item} className="h-20 w-20 flex-none rounded-xl" iconSize={22} />
@@ -119,7 +120,7 @@ export function SpaceRow({ item }) {
           ${formatPrice(item.price)}
           <span className="text-xs font-normal text-stone-400">{item.priceUnit}</span>
         </span>
-        <SaveButton id={item.id} />
+        {showSave && <SaveButton id={item.id} />}
       </div>
     </article>
   );
