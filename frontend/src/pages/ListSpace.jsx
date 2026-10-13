@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Field, LoadingState, ErrorState } from '../components/ui.jsx';
 import { XIcon } from '../components/icons.jsx';
+import AddressInput from '../components/AddressInput.jsx';
 import { formPriceTypes, stateCode, US_STATES } from '../data.js';
 import { closeTabOr } from '../utils.js';
 import { createSpace, getSpace, updateSpace, uploadSpaceImages } from '../api.js';
@@ -10,6 +11,8 @@ const MAX_IMAGES = 10;
 
 const EMPTY = {
   title: '', description: '', address: '', city: '', state: '', postalCode: '',
+  // Set when the address was picked from the suggestions, so the server needs no geocoding.
+  latitude: null, longitude: null,
   price: '', priceType: 'recurring_per_month', availableFrom: '', availableTo: '',
 };
 
@@ -160,6 +163,9 @@ export default function ListSpace() {
     city: form.city.trim(),
     state: form.state.trim() || null,
     postal_code: form.postalCode.trim(),
+    ...(form.latitude != null && form.longitude != null
+      ? { latitude: form.latitude, longitude: form.longitude }
+      : {}),
     price: Number(form.price) || 0,
     price_type: form.priceType,
     available_from: form.availableFrom,
@@ -265,7 +271,23 @@ export default function ListSpace() {
           />
 
           <Field label="Street address" hint="private until booking confirmed">
-            <input className="input" value={form.address} onChange={(e) => patch({ address: e.target.value })} placeholder="1842 Euclid Ave, Apt 3" required />
+            <AddressInput
+              value={form.address}
+              // Typing again drops the coordinates of a picked suggestion: they no longer match.
+              onChange={(address) => patch({ address, latitude: null, longitude: null })}
+              onSelect={(s) =>
+                patch({
+                  address: s.address,
+                  city: s.city,
+                  state: stateCode(s.state),
+                  postalCode: s.postalCode,
+                  latitude: s.latitude,
+                  longitude: s.longitude,
+                })
+              }
+              placeholder="Start typing, e.g. 1842 Euclid Ave"
+              required
+            />
           </Field>
           <div className="grid gap-5 sm:grid-cols-[2fr_1fr_1fr]">
             <Field label="City">

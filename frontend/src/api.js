@@ -3,9 +3,9 @@ import { priceTypeMeta } from './data.js';
 const TOKEN_KEY = 'campusnest_token';
 const USER_KEY = 'campusnest_user';
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE ||
-  (import.meta.env.DEV ? 'http://127.0.0.1:5001/api' : '/api');
+// Requests go to the page's own host and port. In dev the Vite server proxies /api to the
+// backend (vite.config.js); in production nginx does. Set VITE_API_BASE to bypass both.
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 export class ApiError extends Error {
   constructor(message, status, body) {
@@ -371,6 +371,20 @@ export async function listOwnerSpaces(ownerId, page = 1, pageSize = 25) {
     hasMore: Boolean(data?.has_more),
     spaces: (data?.spaces ?? []).map(mapSpace),
   };
+}
+
+/** Street addresses matching what has been typed so far, each with its coordinates. */
+export async function autocompleteAddress(text) {
+  const data = await api('/map/autocomplete', { auth: true, query: { text } });
+  return (data?.suggestions ?? []).map((s) => ({
+    label: s.label,
+    address: s.address,
+    city: s.city,
+    state: s.state || '',
+    postalCode: s.postal_code || '',
+    latitude: s.latitude,
+    longitude: s.longitude,
+  }));
 }
 
 export function createSpace(body) {
