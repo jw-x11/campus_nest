@@ -62,6 +62,7 @@ from sqlalchemy import text  # noqa: E402
 
 import config.s3db_config as s3db_config  # noqa: E402
 from caches.space import delete_space_cache  # noqa: E402
+import crud.map  # noqa: E402
 import crud.spaces  # noqa: E402
 import crud.users  # noqa: E402
 from config.cache_config import redis_client  # noqa: E402
@@ -181,6 +182,24 @@ def fake_s3(monkeypatch) -> FakeS3:
             if hasattr(module, name):
                 monkeypatch.setattr(module, name, getattr(fake, name))
     return fake
+
+
+# --------------------------------------------------------------------------- fake geocoder
+
+FAKE_COORDINATES = (37.8715, -122.273)
+
+
+@pytest.fixture(autouse=True)
+def fake_geocoder(monkeypatch) -> list[dict]:
+    """Every test geocodes to FAKE_COORDINATES with no network call. Returns the requests it received."""
+    calls: list[dict] = []
+
+    async def fake_search(params):
+        calls.append(params)
+        return [{"lat": str(FAKE_COORDINATES[0]), "lon": str(FAKE_COORDINATES[1])}]
+
+    monkeypatch.setattr(crud.map, "_search", fake_search)
+    return calls
 
 
 # --------------------------------------------------------------------------- HTTP client and factories

@@ -75,6 +75,9 @@ class SpaceItemReduced(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=255)]
     city: str
     state: str | None = None
+    # Lets list and map views place a listing without loading its full detail.
+    latitude: float | None = None
+    longitude: float | None = None
     price: Annotated[float, Field(ge=0)] = 0.0
     price_type: Literal["single", "recurring_per_month", "recurring_per_week"]
     thumbnail_url: str | None = None

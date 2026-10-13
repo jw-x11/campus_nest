@@ -52,7 +52,7 @@
 | Auth             | Google Login + UUID + bcrypt password |
 | Payments         | Stripe API (Phase 2)              |
 | Real-Time        | WebSockets + Redis Pub/Sub        |
-| Maps & Geocoding | OpenStreetMap (Leaflet + OSM tiles + Nominatim geocoding) |
+| Maps & Geocoding | OpenStreetMap data: Nominatim geocoding (LocationIQ fallback) + MapLibre GL with the Klokantech Basic style (Geoapify) |
 | Analytics (marketing) | Google Analytics (GA4)       |
 | Analytics (business)  | Custom Postgres queries + Recharts |
 | Testing          | pytest + httpx                    |
@@ -120,17 +120,26 @@ if you need custom tokens).
 
 **Maps & Geocoding**
 
-- **Choice: OpenStreetMap** — free, no API key, open data. Three pieces:
-  - **Geocoding (backend):** `GET https://nominatim.openstreetmap.org/search` converts a listing address to lat/long on `POST /spaces/post` and `PUT /spaces/{id}`. Use structured params (`street`, `city`, `postalcode`, `countrycodes`) with `format=jsonv2&limit=1`; an empty result array → `400 GEOCODE_FAILED`. Response `lat`/`lon` are strings — cast to float.
-  - **Reverse geocoding (optional):** `GET https://nominatim.openstreetmap.org/reverse?lat=..&lon=..&format=jsonv2` turns coordinates back into an address (e.g., "drop a pin" when posting a space).
-  - **Map tiles (frontend):** `https://tile.openstreetmap.org/{z}/{x}/{y}.png` rendered with **Leaflet** (`react-leaflet`) for the map view (Phase 2; list view only for MVP).
-- **Usage-policy requirements** (public OSM servers):
-  - Nominatim: max **1 request/second**, send an identifying `User-Agent` (e.g., `CampusNest/1.0 (contact@email)`), cache results, and **no search-as-you-type autocomplete**. Geocode only on create/update, never per search request.
-  - Tiles: show the attribution `© OpenStreetMap contributors` on the map; the public tile server is for light use only.
-  - For production, switch to a hosted OSM provider (e.g., MapTiler, Stadia Maps, LocationIQ, Geoapify) or self-host Nominatim/tiles. Only the base URLs (and an API key) change; keep them in env vars (`NOMINATIM_URL`, `VITE_MAP_TILE_URL`).
+- **Choice: OpenStreetMap data, with a different provider for each job.** Campus Nest is a paid marketplace (Stripe in Phase 2), so treat usage as **commercial** when picking free tiers.
+  - **Geocoding (backend) — MVP: public Nominatim.** `GET https://nominatim.openstreetmap.org/search` converts a listing address to lat/long on `POST /spaces/post` and `PUT /spaces/{id}`. Use structured params (`street`, `city`, `postalcode`, `countrycodes`) with `format=jsonv2&limit=1`; an empty result array → `400 GEOCODE_FAILED`. Response `lat`/`lon` are strings — cast to float. Results are stored in Postgres, which is what the Nominatim usage policy asks for.
+  - **Geocoding — if the limits are outgrown: LocationIQ.** Its API returns the same Nominatim-style response, so switching is a base-URL + API-key change (free tier: 5,000 requests/day, 2/second, hard cap; free commercial use with a "Search by LocationIQ.com" link). Confirm LocationIQ's terms on storing results long-term before switching.
+  - **Reverse geocoding (optional):** `GET {MAP_URL}/reverse?lat=..&lon=..&format=jsonv2` turns coordinates back into an address (e.g., "drop a pin" when posting a space).
+  - **Map display (frontend) — MapLibre GL with the Klokantech Basic style, served by Geoapify.** `frontend/src/components/SpaceMap.jsx` renders the map with `maplibre-gl` through `react-map-gl/maplibre`, one price-pill marker per listing that has coordinates, and zooms to fit them. The style is loaded from `https://maps.geoapify.com/v1/styles/klokantech-basic/style.json?apiKey=YOUR_KEY`; the style file carries the required attribution. Geoapify free plan: 3,000 credits/day (about 12,000 tiles, roughly 2,000 vector map views a day), commercial use allowed with attribution, soft limits. Without `VITE_MAP_STYLE_URL` the map falls back to the public `https://tile.openstreetmap.org` raster tiles, which is fine for light development use.
+  - **Map display — when daily map views pass the Geoapify quota:** move to **MapTiler** (Flex, ~$25/month) or **Stadia Maps** (Starter, ~$20/month) and point `VITE_MAP_STYLE_URL` at their equivalent style. Their free tiers are **non-commercial only**, so they are for development, not for production on a free plan.
+  - **MapLibre version note:** the frontend uses MapLibre GL v6 (older v5 releases have a critical `DOM.sanitize()` XSS advisory). v6 does not bundle its worker, so `SpaceMap.jsx` imports it with Vite's `?worker&url` and calls `setWorkerUrl`.
+- **Configuration:** keep every provider URL and key in environment variables so changing provider needs no code changes.
+  - Backend (`backend/.env`, read by `backend/config/map_config.py`): `MAP_URL` (geocoder base URL, default public Nominatim), `GEOCODER_API_KEY` (sent as `key`; empty for public Nominatim), `MAP_USER_AGENT` (default `CampusNest/1.0`), `MAP_COUNTRY_CODES` (default `us`).
+  - Frontend (`frontend/.env.local`): `VITE_MAP_STYLE_URL`, the complete style.json URL including the API key. Restrict that key to your domains in the Geoapify dashboard, since it is visible in the browser.
+  - Provider response formats differ (Geoapify, MapTiler, and Stadia geocoders are not Nominatim-compatible), so geocoding stays behind one backend function, `geocode_address` in `backend/crud/map.py`.
+- **Code layout:** `crud/map.py` (geocoder call, Redis cache, rate limit), `routers/map.py` (`GET /api/map/geocode` address preview), `routers/spaces.py` (geocodes on `POST /spaces/post` and on `PUT /spaces/{id}` when the address changes), and `scripts/backfill_geocodes.py` (`python -m scripts.backfill_geocodes`, geocodes older listings that have no coordinates).
+- **Usage-policy requirements:**
+  - Public Nominatim: max **1 request/second**, send an identifying `User-Agent` (e.g., `CampusNest/1.0 (contact@email)`), cache results, and **no search-as-you-type autocomplete**. Geocode only on create/update, never per search request.
+  - Always show map attribution: `© OpenStreetMap contributors`, plus the tile provider's own attribution (Geoapify, MapTiler, Stadia) as its terms require.
+  - Self-hosting Nominatim (Docker, one state extract) is an option if autocomplete, bulk geocoding, or privacy becomes a requirement; self-hosting tiles is heavy and not recommended early.
 - For privacy, store exact lat/long server-side but only return a **fuzzed/approximate** location (e.g., a circle over the block) to renters until a booking is confirmed.
 - Proximity/"near campus" search: store `latitude`/`longitude` on the spaces table and filter with a bounding-box or PostGIS `ST_DWithin` query; campus coordinates can be a small lookup table.
 - Alternatives: **Mapbox** (polished vector maps, free tier then usage-based pricing) or **Google Maps Platform** (best autocomplete/geocoding accuracy, highest cost).
+
 
 **Payments (Phase 2)**
 

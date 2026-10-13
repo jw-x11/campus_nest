@@ -17,6 +17,7 @@ from schemas.spaces import (
     SpaceSearchQuery,
 )
 from utils.response import success_response
+from crud.map import GeocodeUnavailable, geocode_address
 from crud.spaces import (
     count_space_images,
     create_space,
@@ -45,6 +46,36 @@ api_spaces = APIRouter()
 async def require_space_owner(db: AsyncSession, space_id: int, user_id: UUID) -> None:
     if not await verify_space_ownership(db, space_id, user_id):
         raise HTTPException(status_code=403, detail="Forbidden")
+
+def _same_address(body: SpaceInfoRequest, space: SpaceItem) -> bool:
+    def norm(value: str | None) -> str:
+        return (value or "").strip().lower()
+
+    return (
+        norm(body.address) == norm(space.address)
+        and norm(body.city) == norm(space.city)
+        and norm(body.state) == norm(space.state)
+        and norm(body.postal_code) == norm(space.postal_code)
+    )
+
+
+async def fill_coordinates(body: SpaceInfoRequest) -> None:
+    """
+    Set the request's latitude and longitude from its address.\n
+    Coordinates the client already sent are kept. An address with no match is a 400 GEOCODE_FAILED.
+    If the geocoder is down the listing is still saved, without coordinates.
+    """
+    if body.latitude is not None and body.longitude is not None:
+        return
+    try:
+        coordinates = await geocode_address(body.address, body.city, body.state, body.postal_code)
+    except GeocodeUnavailable as e:
+        print(f"Geocoder unavailable, saving listing without coordinates: {e}")
+        return
+    if coordinates is None:
+        raise HTTPException(status_code=400, detail="GEOCODE_FAILED")
+    body.latitude, body.longitude = coordinates
+
 
 # add image urls to a space item
 async def to_space_item(space, image_urls: list[str] | None = None) -> SpaceItem:
@@ -148,6 +179,7 @@ async def post_space(
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    await fill_coordinates(body)
     space = await create_space(db, body, user.id)
     return success_response(message="Space created", data=await to_space_item(space, []))
 
@@ -211,6 +243,12 @@ async def update_space(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await require_space_owner(db, space_id, user.id)
+    existing = await get_space_by_id(db, space_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Space not found")
+    # Only look the address up again when it changed, or when the listing has no coordinates yet.
+    if not _same_address(body, existing) or existing.latitude is None or existing.longitude is None:
+        await fill_coordinates(body)
     result = await update_space_info(db, body, space_id)
     if not result:
         raise HTTPException(status_code=404, detail="Space not found")

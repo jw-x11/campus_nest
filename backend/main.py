@@ -12,10 +12,10 @@ from routers.spaces import api_spaces
 from routers.bookings import api_bookings
 from routers.view_history import api_view_history
 from routers.saved_space import api_saved_space
+from routers.map import api_map
 from jobs.booking_status import run_booking_status_job
 from jobs.view_count_flush import flush_view_counts_now, run_view_count_flusher
 
-# TODO: map location integration
 # TODO: SocketIO live message
 # TODO: Reviews and comments section
 # TODO: Add logging and analytics
@@ -60,6 +60,7 @@ app_router.include_router(api_spaces, prefix="/spaces", tags=["spaces"])
 app_router.include_router(api_bookings, prefix="/bookings", tags=["bookings"])
 app_router.include_router(api_view_history, prefix="/history", tags=["view-history"])
 app_router.include_router(api_saved_space, prefix="/saved", tags=["saved-space"])
+app_router.include_router(api_map, prefix="/map", tags=["map"])
 
 @app.get("/api/health")
 def health():

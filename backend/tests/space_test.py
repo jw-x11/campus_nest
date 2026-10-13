@@ -188,8 +188,9 @@ class TestSearch:
     async def test_reduced_item_shape(self, client, register, create_space):
         await create_space(await register())
         [item] = (await search(client))["spaces"]
-        assert set(item) == {"id", "title", "city", "state", "price", "price_type", "thumbnail_url", "available_from",
-                             "available_to", "is_active", "not_accepting", "expired_at", "view_count", "updated_at"}
+        assert set(item) == {"id", "title", "city", "state", "latitude", "longitude", "price", "price_type",
+                             "thumbnail_url", "available_from", "available_to", "is_active", "not_accepting",
+                             "expired_at", "view_count", "updated_at"}
         assert "address" not in item
 
     @pytest.mark.parametrize(

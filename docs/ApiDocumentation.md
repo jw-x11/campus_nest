@@ -224,6 +224,11 @@ The core listing CRUD + search + images. Router file: `backend/routers/spaces.py
 > **Privacy:** never return exact `address`, `latitude`, or `longitude` to non-confirmed
 > renters. Return only `city`, `state`, `postal_code`, and a **fuzzed** `approx_location` (snapped to
 > the block, computed on the fly). Exact address is revealed only after a booking is confirmed.
+>
+> **Implementation status:** fuzzing is not built yet. For now `latitude` and `longitude` are
+> returned as stored on the full listing (`GET /spaces/{id}`, `/me`, `/post`, `PUT`) and on
+> every list item (`GET /spaces/all`, `/me`, `/from/{owner_id}`, saved, history) so the map can
+> place pins. Apply the fuzzing above before real launch.
 
 ### 3.1 `POST /spaces/post`
 Create a listing.
@@ -247,9 +252,18 @@ Create a listing.
 ```
 - **Response `201`:** `SpaceResponse` (`owner_id` = caller).
 - **Logic**
-  - Geocode `address` via **OpenStreetMap Nominatim** (`GET /search` with `street`, `city`,
-    `postalcode`, `format=jsonv2`, `limit=1`) → store exact `latitude`/`longitude`
-    server-side (never returned). Empty result → `GEOCODE_FAILED`.
+  - Geocode `address` via **OpenStreetMap Nominatim** (base URL from the `MAP_URL` env var, so it
+    can be switched to a Nominatim-compatible provider such as LocationIQ; `GET {MAP_URL}/search`
+    with `street`, `city`, `state`, `postalcode`, `countrycodes`, `format=jsonv2`, `limit=1`, plus
+    `key` when `GEOCODER_API_KEY` is set) → store `latitude`/`longitude`. Empty result →
+    `400 GEOCODE_FAILED`.
+  - Coordinates sent by the client (`latitude` and `longitude` together) are kept as-is and skip
+    geocoding. Results are cached in Redis (30 days for matches, 1 hour for misses) and requests
+    to the geocoder are limited to about one per second.
+  - If the geocoder is unreachable, the listing is still saved, without coordinates (it does not
+    appear on the map until `PUT /spaces/{id}` or `python -m scripts.backfill_geocodes` fills them in).
+  - `PUT /spaces/{id}` geocodes again only when `address`, `city`, `state` or `postal_code`
+    changed, or when the listing has no coordinates yet.
   - `is_active` = true; set `expired_at` = now + 1 month (auto-hidden after, renewable; auto
     delete at 3 months).
 - **Errors:** `400 GEOCODE_FAILED`, `422` validation (e.g. `available_to < available_from`).
@@ -338,7 +352,8 @@ The caller's own listings, for managing them.
 {
   "total_count": 3, "has_more": true, "total_pages": 2,
   "spaces": [{
-    "id": 1, "title": "...", "city": "Springfield", "state": "IL", "price": 60.00,
+    "id": 1, "title": "...", "city": "Springfield", "state": "IL",
+    "latitude": 39.7817, "longitude": -89.6501, "price": 60.00,
     "price_type": "recurring_per_month", "thumbnail_url": "https://seaweedfs/.../1-thumb.jpg",
     "available_from": "2026-06-01", "available_to": "2026-08-15",
     "is_active": true, "not_accepting": false, "expired_at": "2026-07-22T00:00:00Z",
@@ -378,6 +393,20 @@ Stop or resume taking new booking requests. The listing stays visible.
   accepted or declined.
 - **Errors:** `400` invalid body, `403` not the owner (also returned for an unknown space, like
   `PUT /spaces/{id}`).
+
+### 3.10 `GET /map/geocode`
+Preview where an address lands on the map, for example before the listing form is submitted.
+Router file: `backend/routers/map.py` (mounted at `/api/map`).
+
+- **Auth:** required
+- **Query params:** `address` (required), `city` (required), `state`, `postal_code`
+- **Response `200`**
+```json
+{ "code": 200, "message": "Location found", "data": { "latitude": 39.7817, "longitude": -89.6501 } }
+```
+- **Logic:** same geocoder, cache, and rate limit as §3.1. Not meant for search-as-you-type: public
+  Nominatim forbids autocomplete.
+- **Errors:** `400 GEOCODE_FAILED` (no match, or invalid query), `401`, `503 GEOCODER_UNAVAILABLE`.
 
 > **Phase 2 — Map view.** `GET /spaces/map?bbox=w,s,e,n&<filters>` returns GeoJSON of listings
 > within the bounding box + a true total count, capped at ~200–300 markers with fuzzed

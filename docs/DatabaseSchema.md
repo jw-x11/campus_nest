@@ -136,7 +136,7 @@ CREATE INDEX idx_spaces_lat_lng ON spaces (latitude, longitude);
 
 > **Migration — `state`.** Databases created before this column existed need `ALTER TABLE spaces ADD COLUMN state text;`. Existing rows stay `NULL`.
 
-> **Geo notes:** `latitude`/`longitude` are populated by the OpenStreetMap Nominatim geocoding API on create/update and are never returned to renters before a booking is confirmed. A fuzzed/approximate location (snapped to ~the block) is computed on the fly at request time from the exact coordinates — no stored approximate columns needed. For proximity/"near campus" search, filter on a bounding box over `latitude`/`longitude`, or enable **PostGIS** and add a `location geography(Point,4326)` generated column to use `ST_DWithin` for accurate radius queries.
+> **Geo notes:** `latitude`/`longitude` are populated by the OpenStreetMap Nominatim geocoding API (service URL set by `MAP_URL`) on create/update, or by `python -m scripts.backfill_geocodes` for older rows. They are meant to stay hidden from renters until a booking is confirmed; **that fuzzing is not implemented yet** and the API currently returns the stored values. A fuzzed/approximate location (snapped to ~the block) is computed on the fly at request time from the exact coordinates — no stored approximate columns needed. For proximity/"near campus" search, filter on a bounding box over `latitude`/`longitude`, or enable **PostGIS** and add a `location geography(Point,4326)` generated column to use `ST_DWithin` for accurate radius queries.
 
 ---
 
