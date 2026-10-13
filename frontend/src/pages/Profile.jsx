@@ -203,6 +203,7 @@ export default function Profile() {
     try {
       const updated = await uploadAvatar(file);
       setUser(updated);
+      storeUser(updated);
     } catch (err) {
       alert(err.message || 'Avatar upload failed.');
     } finally {

@@ -13,7 +13,7 @@ class SpaceInfoRequest(BaseModel):
     description: Annotated[str | None, Field(min_length=1, max_length=1000)] = None
     address: str
     city: str
-    state: Annotated[str | None, Field(min_length=1, max_length=100)] = None
+    state: Annotated[str | None, Field(min_length=2, max_length=2)] = None  # two-letter state code
     postal_code: Annotated[str | None, Field(min_length=1, max_length=10)]
     latitude: float | None = None
     longitude: float | None = None
@@ -97,7 +97,7 @@ class SpaceSearchQuery(BaseModel):
 
     keyword: Annotated[str | None, Field(max_length=255, alias="kw")] = None # no keyword for then search by location
     city: str | None = None # only one of city or postal_code is required
-    state: Annotated[str | None, Field(max_length=100)] = None
+    state: Annotated[str | None, Field(max_length=2)] = None  # two-letter state code
     postal_code: Annotated[str | None, Field(alias="pc", max_length=10)] = None
     available_from: Annotated[date | None, Field(alias="from")] = None
     available_to: Annotated[date | None, Field(alias="to")] = None

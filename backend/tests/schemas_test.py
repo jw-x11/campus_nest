@@ -77,6 +77,8 @@ class TestSpaceSchemas:
             {"postal_code": "12345678901"},
             {"description": ""},
             {"state": ""},
+            {"state": "C"},
+            {"state": "California"},
         ],
     )
     def test_space_info_rejects_invalid_fields(self, overrides):

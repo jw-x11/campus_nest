@@ -44,9 +44,13 @@ export default function Nav() {
             <Link
               to="/profile"
               aria-label="Your profile"
-              className="ml-1 grid h-8 w-8 place-items-center rounded-full bg-[#2b2b2b] font-mono text-[11px] text-white"
+              className="ml-1 grid h-8 w-8 flex-none place-items-center overflow-hidden rounded-full bg-[#2b2b2b] font-mono text-[11px] text-white"
             >
-              {initials(user.username)}
+              {user.avatarUrl ? (
+                <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                initials(user.username)
+              )}
             </Link>
           ) : (
             <Link to="/login" className="btn btn-sm btn-dark ml-2">

@@ -277,7 +277,7 @@ Search/list with filters. **Cached in Redis.**
   | Param | Type | Notes |
   |---|---|---|
   | `city` | string | exact/indexed match |
-  | `state` | string | case-insensitive exact match (e.g. `il`) |
+  | `state` | string (max 2) | two-letter state code, case-insensitive exact match (e.g. `il`) |
   | `type` | enum | space type filter |
   | `available_from` | date | overlap with listing window |
   | `available_to` | date | overlap with listing window |
