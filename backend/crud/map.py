@@ -1,26 +1,23 @@
 import asyncio
-import hashlib
 import logging
 import time
 
 import httpx
 
+from caches.map import (
+    get_autocomplete_cache,
+    get_geocode_cache,
+    set_autocomplete_cache,
+    set_geocode_cache,
+)
 from config import map_config
-from config.cache_config import DAY, HOUR, get_json_cache, set_cache
 
 logger = logging.getLogger(__name__)
-
-# Found addresses never move, so keep them a long time. Misses are retried sooner in case the
-# address was a typo or the map data has since been fixed.
-FOUND_CACHE_TTL = 30 * DAY
-MISS_CACHE_TTL = HOUR
 
 # The public Nominatim server allows one request per second.
 MIN_REQUEST_INTERVAL = 1.1
 REQUEST_TIMEOUT = 10.0
 
-# The same suggestions are asked for by many users typing the same street, so they are cached.
-AUTOCOMPLETE_CACHE_TTL = DAY
 AUTOCOMPLETE_LIMIT = 5
 # Ask for more than we show, because results that are not street addresses are dropped.
 AUTOCOMPLETE_FETCH_LIMIT = 10
@@ -34,12 +31,6 @@ _last_request_at = 0.0
 
 class GeocodeUnavailable(Exception):
     """The geocoding service could not be reached or returned an error."""
-
-
-def _cache_key(address: str, city: str, state: str | None, postal_code: str | None) -> str:
-    parts = [part.strip().lower() for part in (address, city, state or "", postal_code or "")]
-    digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
-    return f"geocode:{digest}"
 
 
 async def _search(params: dict[str, str]) -> list[dict]:
@@ -81,13 +72,9 @@ async def geocode_address(
     Latitude and longitude of a street address, or None when the geocoder finds no match.\n
     Results are cached in Redis. Raises GeocodeUnavailable when the geocoder cannot be reached.
     """
-    key = _cache_key(address, city, state, postal_code)
-    cached = await get_json_cache(key)
-    if isinstance(cached, dict):
-        if cached.get("miss"):
-            return None
-        if "lat" in cached and "lon" in cached:
-            return cached["lat"], cached["lon"]
+    cached = await get_geocode_cache(address, city, state, postal_code)
+    if cached is not False:
+        return cached
 
     params = {
         "street": address.strip(),
@@ -101,7 +88,7 @@ async def geocode_address(
 
     results = await _search(params)
     if not results:
-        await set_cache(key, {"miss": True}, MISS_CACHE_TTL)
+        await set_geocode_cache(address, city, state, postal_code, None)
         return None
 
     try:
@@ -112,7 +99,7 @@ async def geocode_address(
         logger.warning("Unreadable geocoder result: %s", results[0])
         raise GeocodeUnavailable("Unreadable geocoder result") from e
 
-    await set_cache(key, {"lat": lat, "lon": lon}, FOUND_CACHE_TTL)
+    await set_geocode_cache(address, city, state, postal_code, (lat, lon))
     return lat, lon
 
 
@@ -151,7 +138,7 @@ async def _autocomplete(text: str) -> list[dict]:
 
 
 def _suggestion(result: dict) -> dict | None:
-    """One autocomplete result as a listing address, or None when it is not a street address."""
+    """One autocomplete result as a listing address as a dictionary, or None when it is not a street address."""
     if not isinstance(result, dict):
         return None
     street = result.get("street")
@@ -189,11 +176,9 @@ async def autocomplete_address(text: str) -> list[dict]:
     text = " ".join(text.split())
     if len(text) < 3:
         return []
-    digest = hashlib.sha256(text.lower().encode("utf-8")).hexdigest()
-    key = f"autocomplete:{digest}"
-    cached = await get_json_cache(key)
-    if isinstance(cached, dict) and isinstance(cached.get("suggestions"), list):
-        return cached["suggestions"]
+    cached = await get_autocomplete_cache(text)
+    if cached is not None:
+        return cached
 
     suggestions: list[dict] = []
     seen: set[str] = set()
@@ -207,5 +192,5 @@ async def autocomplete_address(text: str) -> list[dict]:
         if len(suggestions) == AUTOCOMPLETE_LIMIT:
             break
 
-    await set_cache(key, {"suggestions": suggestions}, AUTOCOMPLETE_CACHE_TTL)
+    await set_autocomplete_cache(text, suggestions)
     return suggestions
