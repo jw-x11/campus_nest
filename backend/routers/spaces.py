@@ -13,7 +13,9 @@ from schemas.spaces import (
     SpaceInfoRequest,
     SpaceItem,
     SpaceItemReduced,
+    MAX_PIN_SPAN_DEG,
     SpaceListReducedResponse,
+    SpacePinsResponse,
     SpaceSearchQuery,
 )
 from utils.response import success_response
@@ -24,6 +26,7 @@ from crud.spaces import (
     get_all_spaces_by_owner,
     get_space_by_id,
     get_space_list,
+    get_space_pins,
     list_space_thumbnail_urls,
     get_view_count,
     increase_view_count,
@@ -134,6 +137,22 @@ async def get_space_list_by_query(
     return success_response(message="Spaces found",
                             data=reduced_list_response(spaces, space_count, filters.page, filters.page_size))
 
+
+
+# Pins for the map: every match in a city-sized area, up to PIN_LIMIT. Takes the same filters as /all.
+@api_spaces.get("/pins")
+async def get_space_pins_by_query(
+    filters: Annotated[SpaceSearchQuery, Query()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not filters.has_bounds:
+        raise HTTPException(status_code=400, detail="BOUNDS_REQUIRED")
+    if filters.bounds_span > MAX_PIN_SPAN_DEG:
+        raise HTTPException(status_code=400, detail="AREA_TOO_LARGE")
+
+    pins, total, truncated = await get_space_pins(db, filters)
+    return success_response(message="Pins found",
+                            data=SpacePinsResponse(pins=pins, total_count=total, truncated=truncated))
 
 
 # Every listing the caller owns, including hidden and expired ones, so they can be renewed.

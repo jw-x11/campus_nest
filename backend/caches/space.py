@@ -73,6 +73,11 @@ def space_search_cache_key(filters: SpaceSearchQuery) -> str:
             "min_price",
             "max_price",
             "show_non_accepting",
+            # Already snapped by SpaceSearchQuery, so nearby map views share a key.
+            "south",
+            "north",
+            "west",
+            "east",
         },
     )
     payload["keyword"] = _folded(payload["keyword"])

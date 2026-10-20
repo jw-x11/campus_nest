@@ -287,6 +287,7 @@ Search/list with filters. **Cached in Redis.**
   | `page` | int | default 1 |
   | `page_size` | int | default 20, cap 100 |
   | `show_non_accepting` | bool | default `false`; `true` also returns spaces with `not_accepting = true` |
+  | `south`, `north`, `west`, `east` | float | visible map area in degrees; all four or none. `south < north`, `west < east` |
 - **Response `200`**
 ```json
 { "results": [ /* SpaceInfoResponse[] */ ], "total": 137, "page": 1, "page_size": 20 }
@@ -295,10 +296,31 @@ Search/list with filters. **Cached in Redis.**
   - Only return `is_active = true` AND `expired_at > now()`.
   - Also require `not_accepting = false` unless `show_non_accepting=true`. The flag is part of
     the cache key, so the two variants are cached separately.
+  - With a map area, only listings whose `latitude`/`longitude` fall inside it (listings without
+    coordinates are left out). The area is first grown outward to a grid about 1/8 of its size, so
+    small pans of the map give the same bounds and share one cache entry.
   - Sort by **relevance (date-match quality) then price**.
   - Cache: hash the normalized query → `search:{hash}` (TTL 5 min). Invalidate on any listing
     create/update/delete.
-- **Errors:** `422` invalid filters.
+- **Errors:** `400` invalid filters, including partial or inverted map bounds.
+
+### 3.2a `GET /spaces/pins`
+Map pins for every listing in a city-sized area. Takes the same query params as `/spaces/all`
+(paging is ignored) and shares its cache.
+
+- **Auth:** none
+- **Query params:** `south`, `north`, `west`, `east` are required. The larger side of the area may be
+  at most **0.5°** (about 55 km).
+- **Response `200`**
+```json
+{ "pins": [ { "id": 12, "title": "Dry garage corner", "latitude": 34.414, "longitude": -119.8489,
+             "price": 50.0, "price_type": "single" } ],
+  "total_count": 1, "truncated": false }
+```
+- **Logic**
+  - Returns at most **300** pins, newest first by default. `truncated` is `true` when more matched;
+    `total_count` counts matches up to 500.
+- **Errors:** `400 BOUNDS_REQUIRED`, `400 AREA_TOO_LARGE`, `400` invalid filters.
 
 ### 3.3 `GET /spaces/{id}`
 Listing detail. **Cached in Redis.**

@@ -342,6 +342,7 @@ export async function searchSpaces(filters = {}) {
       sort: filters.sortBy,
       order: filters.sortOrder,
       show_non_accepting: filters.showNonAccepting ? true : undefined,
+      ...boundsQuery(filters.bounds),
     },
   });
   return {
@@ -349,6 +350,42 @@ export async function searchSpaces(filters = {}) {
     hasMore: Boolean(data?.has_more),
     totalPages: data?.total_pages ?? 0,
     spaces: (data?.spaces ?? []).map(mapSpace),
+  };
+}
+
+// Pins are only searched in an area about the size of a city. Same value as the backend.
+export const MAX_PIN_SPAN_DEG = 0.5;
+
+/** Larger side of a { south, north, west, east } map area, in degrees. */
+export function boundsSpan(bounds) {
+  return Math.max(bounds.north - bounds.south, bounds.east - bounds.west);
+}
+
+function boundsQuery(bounds) {
+  if (!bounds) return {};
+  const { south, north, west, east } = bounds;
+  return { south, north, west, east };
+}
+
+/**
+ * Map pins for every listing in a city-sized area, up to the server's limit.
+ * bounds: { south, north, west, east }. Returns { pins, total, truncated }, where truncated
+ * means more listings matched than were returned.
+ */
+export async function getSpacePins(bounds) {
+  const data = await api('/spaces/pins', { query: boundsQuery(bounds) });
+  return {
+    total: data?.total_count ?? 0,
+    truncated: Boolean(data?.truncated),
+    pins: (data?.pins ?? []).map((pin) => ({
+      id: String(pin.id),
+      title: pin.title || 'Untitled space',
+      latitude: Number(pin.latitude),
+      longitude: Number(pin.longitude),
+      price: Number(pin.price) || 0,
+      priceType: pin.price_type,
+      priceUnit: (priceTypeMeta[pin.price_type] || priceTypeMeta.recurring_per_month).unit,
+    })),
   };
 }
 

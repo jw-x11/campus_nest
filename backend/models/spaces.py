@@ -74,6 +74,9 @@ class Space(Base):
     )
     expired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
+    # Map area search filters on a latitude and longitude range. Same name as in DatabaseSchema.md.
+    __table_args__ = (Index("idx_spaces_lat_lng", "latitude", "longitude"),)
+
 
 
 class SpaceImage(Base):

@@ -8,6 +8,7 @@ from schemas.auth import AuthLoginRequest, AuthRegisterRequest, ChangePasswordRe
 from schemas.bookings import BookingRequest, BookingSpecialDealRequest
 from schemas.spaces import SpaceInfoRequest, SpaceItem, SpaceItemReduced, SpaceSearchQuery
 from schemas.users import UserUpdateRequest
+from caches.space import space_search_cache_key
 
 
 class TestAuthSchemas:
@@ -144,6 +145,59 @@ class TestSpaceSchemas:
              "expired_at": None if expires_in is None else now + expires_in}
         )
         assert space.is_listed is listed
+
+
+class TestSearchBounds:
+    def _query(self, south, north, west, east):
+        return SpaceSearchQuery(south=south, north=north, west=west, east=east)
+
+    def test_no_bounds_is_allowed(self):
+        query = SpaceSearchQuery()
+        assert not query.has_bounds
+        assert query.bounds_span == 0.0
+
+    @pytest.mark.parametrize("bounds", [
+        dict(south=34.4),
+        dict(south=34.4, north=34.5, west=-119.9),
+    ])
+    def test_partial_bounds_rejected(self, bounds):
+        with pytest.raises(ValidationError):
+            SpaceSearchQuery(**bounds)
+
+    @pytest.mark.parametrize("bounds", [
+        (34.5, 34.4, -119.9, -119.8),  # south above north
+        (34.4, 34.5, -119.8, -119.9),  # west right of east
+        (34.4, 34.4, -119.9, -119.8),  # no height
+    ])
+    def test_inverted_bounds_rejected(self, bounds):
+        with pytest.raises(ValidationError):
+            self._query(*bounds)
+
+    def test_snapping_only_grows_the_box(self):
+        query = self._query(34.4012, 34.4487, -119.8763, -119.8021)
+        assert query.south <= 34.4012 and query.north >= 34.4487
+        assert query.west <= -119.8763 and query.east >= -119.8021
+        # Grows by less than half the requested size.
+        assert query.north - query.south < 1.5 * (34.4487 - 34.4012)
+
+    def test_small_pans_snap_to_the_same_cache_key(self):
+        a = self._query(34.4012, 34.4487, -119.8763, -119.8021)
+        b = self._query(34.4031, 34.4498, -119.8770, -119.8009)
+        assert (a.south, a.north, a.west, a.east) == (b.south, b.north, b.west, b.east)
+        assert space_search_cache_key(a) == space_search_cache_key(b)
+
+    def test_different_areas_get_different_cache_keys(self):
+        campus = self._query(34.40, 34.45, -119.88, -119.80)
+        downtown = self._query(34.40, 34.45, -119.72, -119.66)
+        assert space_search_cache_key(campus) != space_search_cache_key(downtown)
+
+    def test_span_is_the_requested_size(self):
+        query = self._query(34.0, 34.5, -119.9, -119.6)
+        assert query.bounds_span == pytest.approx(0.5)
+
+    def test_snapping_stays_on_the_globe(self):
+        query = self._query(89.9, 89.99, 179.9, 179.99)
+        assert query.north <= 90 and query.east <= 180
 
 
 class TestBookingSchemas:

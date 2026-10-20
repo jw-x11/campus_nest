@@ -22,6 +22,12 @@ def ids(spaces: list[dict]) -> list[int]:
     return [space["id"] for space in spaces]
 
 
+# Around UCSB, about 0.07 degrees on its larger side.
+CAMPUS = dict(south=34.40, north=34.45, west=-119.88, east=-119.81)
+INSIDE = dict(latitude=34.4140, longitude=-119.8489)
+OUTSIDE = dict(latitude=34.0522, longitude=-118.2437)  # Los Angeles
+
+
 class TestCreate:
     async def test_returns_new_listing(self, client, register):
         owner = await register()
@@ -519,3 +525,98 @@ class TestViewCountFlush:
 
         resp = await client.get(f"/api/spaces/{space['id']}")
         assert resp.json()["data"]["view_count"] == 3
+
+
+class TestAreaSearch:
+    async def test_returns_only_listings_in_the_area(self, client, register, create_space, db_execute):
+        owner = await register()
+        inside = await create_space(owner, title="Campus", **INSIDE)
+        await create_space(owner, title="Los Angeles", **OUTSIDE)
+        unmapped = await create_space(owner, title="Unmapped", **INSIDE)
+        await db_execute("UPDATE spaces SET latitude = NULL, longitude = NULL WHERE id = :id", id=unmapped["id"])
+
+        data = await search(client, **CAMPUS)
+        assert ids(data["spaces"]) == [inside["id"]]
+        assert data["total_count"] == 1
+
+    async def test_other_filters_still_apply(self, client, register, create_space):
+        owner = await register()
+        cheap = await create_space(owner, price=20, **INSIDE)
+        await create_space(owner, price=900, **INSIDE)
+        data = await search(client, max=100, **CAMPUS)
+        assert ids(data["spaces"]) == [cheap["id"]]
+
+    async def test_partial_bounds_rejected(self, client):
+        resp = await client.get("/api/spaces/all", params={"south": 34.4, "north": 34.5})
+        assert resp.status_code == 400
+
+    async def test_inverted_bounds_rejected(self, client):
+        resp = await client.get("/api/spaces/all", params={**CAMPUS, "south": 34.5, "north": 34.4})
+        assert resp.status_code == 400
+
+    async def test_nearby_view_reuses_the_cached_search(self, client, register, create_space):
+        owner = await register()
+        first = await create_space(owner, **INSIDE)
+        assert ids((await search(client, **CAMPUS))["spaces"]) == [first["id"]]
+
+        # A listing added now is not in the cached id list, so a nearby view that snaps to
+        # the same box still returns only the first one.
+        await create_space(owner, **INSIDE)
+        nudged = {**CAMPUS, "south": 34.401, "north": 34.451}
+        assert ids((await search(client, **nudged))["spaces"]) == [first["id"]]
+
+
+class TestPins:
+    async def pins(self, client, **params) -> dict:
+        resp = await client.get("/api/spaces/pins", params=params)
+        assert resp.status_code == 200, resp.text
+        return resp.json()["data"]
+
+    async def test_returns_pins_in_the_area(self, client, register, create_space):
+        owner = await register()
+        space = await create_space(owner, title="Campus", price=75, **INSIDE)
+        await create_space(owner, **OUTSIDE)
+
+        data = await self.pins(client, **CAMPUS)
+        assert data["total_count"] == 1
+        assert data["truncated"] is False
+        [pin] = data["pins"]
+        assert pin == {
+            "id": space["id"], "title": "Campus", "latitude": INSIDE["latitude"],
+            "longitude": INSIDE["longitude"], "price": 75.0, "price_type": "single",
+        }
+
+    async def test_requires_bounds(self, client):
+        resp = await client.get("/api/spaces/pins")
+        assert resp.status_code == 400
+        assert "BOUNDS_REQUIRED" in resp.text
+
+    async def test_rejects_area_larger_than_a_city(self, client):
+        resp = await client.get("/api/spaces/pins", params={"south": 34.0, "north": 34.6, "west": -119.9, "east": -119.8})
+        assert resp.status_code == 400
+        assert "AREA_TOO_LARGE" in resp.text
+
+    async def test_city_sized_area_is_allowed(self, client):
+        # Exactly the limit on the larger side; snapping grows the box but does not count.
+        await self.pins(client, south=34.0, north=34.5, west=-119.9, east=-119.6)
+
+    async def test_truncated_past_pin_limit(self, client, register, create_space, monkeypatch):
+        monkeypatch.setattr("crud.spaces.PIN_LIMIT", 2)
+        owner = await register()
+        created = [await create_space(owner, **INSIDE) for _ in range(3)]
+
+        data = await self.pins(client, **CAMPUS)
+        assert data["total_count"] == 3
+        assert data["truncated"] is True
+        # Newest first, like the list.
+        assert [pin["id"] for pin in data["pins"]] == [created[2]["id"], created[1]["id"]]
+
+    async def test_skips_listing_that_lost_coordinates_since_cached(self, client, register, create_space, db_execute):
+        owner = await register()
+        kept = await create_space(owner, **INSIDE)
+        moved = await create_space(owner, **INSIDE)
+        await self.pins(client, **CAMPUS)
+        await db_execute("UPDATE spaces SET latitude = NULL, longitude = NULL WHERE id = :id", id=moved["id"])
+
+        data = await self.pins(client, **CAMPUS)
+        assert [pin["id"] for pin in data["pins"]] == [kept["id"]]

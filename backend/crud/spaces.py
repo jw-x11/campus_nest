@@ -5,7 +5,7 @@ from fastapi import HTTPException, UploadFile
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta, timezone
 
-from schemas.spaces import SpaceInfoRequest, SpaceSearchQuery
+from schemas.spaces import PIN_LIMIT, SpaceInfoRequest, SpacePin, SpaceSearchQuery
 from caches.space import *
 from models.spaces import Space, SpaceImage
 from utils.images import resize_long_edge
@@ -209,19 +209,17 @@ async def hydrate_space_list(db: AsyncSession, space_ids: list[int]) -> list[Spa
     return [spaces_by_id[space_id] for space_id in space_ids if space_id in spaces_by_id]
 
 
-async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[SpaceItem], int]:
-    """Search active, unexpired listings. Returns one page and the total cached match count."""
-    conditions = [Space.is_active.is_(True), Space.expired_at > datetime.now(timezone.utc)]
-
-    offset = (filters.page - 1) * filters.page_size
-
-    # get id from cache and hydrate space list
+async def search_space_ids(db: AsyncSession, filters: SpaceSearchQuery) -> list[int]:
+    """
+    Ids of active, unexpired listings matching the filters, in sort order, up to CACHE_SPACES_COUNT.\n
+    Paging is ignored. The ids are cached in Redis for a few minutes.
+    """
     cache_key = space_search_cache_key(filters)
     cached_ids = await get_space_search_ids(cache_key)
     if cached_ids is not None:
-        cached_result: List[SpaceItem] = await hydrate_space_list(db, cached_ids[offset:offset+filters.page_size])
-        return cached_result, len(cached_ids)
+        return cached_ids
 
+    conditions = [Space.is_active.is_(True), Space.expired_at > datetime.now(timezone.utc)]
     # build condition for database query
     if not filters.show_non_accepting:
         conditions.append(Space.not_accepting.is_(False))
@@ -248,6 +246,10 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
         conditions.append(Space.price >= filters.min_price)
     if filters.max_price is not None:
         conditions.append(Space.price <= filters.max_price)
+    if filters.has_bounds:
+        # between() is never true for NULL, so listings without coordinates drop out.
+        conditions.append(Space.latitude.between(filters.south, filters.north))
+        conditions.append(Space.longitude.between(filters.west, filters.east))
 
     if filters.sort_by == "price":
         sort_columns, default_order = [Space.price], "asc"
@@ -263,20 +265,45 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
     # Tiebreaker keeps paging stable when the sort key has duplicates.
     order_by.append(Space.id.asc())
 
-    stm = (select(Space)
+    stm = (select(Space.id)
            .where(*conditions)
            .order_by(*order_by)
            .limit(CACHE_SPACES_COUNT))
 
     result = await db.execute(stm)
-    space_list = result.scalars().all()
+    space_ids = list(result.scalars().all())
 
     # write back to cache
-    space_ids = [space.id for space in space_list]
     await cache_space_search_results(cache_key, space_ids)
+    return space_ids
 
-    splice = [SpaceItem.model_validate(space) for space in space_list[offset:offset+filters.page_size]]
-    return splice, len(space_list)
+
+async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[SpaceItem], int]:
+    """Search active, unexpired listings. Returns one page and the total cached match count."""
+    space_ids = await search_space_ids(db, filters)
+    offset = (filters.page - 1) * filters.page_size
+    page: List[SpaceItem] = await hydrate_space_list(db, space_ids[offset:offset+filters.page_size])
+    return page, len(space_ids)
+
+
+async def get_space_pins(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[SpacePin], int, bool]:
+    """
+    Map pins for the first PIN_LIMIT matches in sort order, the total cached match count, and
+    whether matches were left out because of PIN_LIMIT.
+    """
+    space_ids = await search_space_ids(db, filters)
+    pin_ids = space_ids[:PIN_LIMIT]
+    truncated = len(space_ids) > PIN_LIMIT
+    if not pin_ids:
+        return [], len(space_ids), truncated
+
+    stm = select(Space.id, Space.title, Space.latitude, Space.longitude, Space.price, Space.price_type).where(
+        Space.id.in_(pin_ids))
+    rows = {row.id: row for row in (await db.execute(stm)).all()}
+    # A listing deleted since the ids were cached, or one that lost its coordinates, is skipped.
+    pins = [SpacePin.model_validate(rows[space_id]) for space_id in pin_ids
+            if space_id in rows and rows[space_id].latitude is not None and rows[space_id].longitude is not None]
+    return pins, len(space_ids), truncated
 
 
 

@@ -94,12 +94,15 @@ export function SpaceCard({ item }) {
 
 // Horizontal row — search results, map list, history. By default a click opens the listing;
 // onClick replaces that (the map page zooms to the pin instead).
-export function SpaceRow({ item, onClick }) {
+// hoverable: false leaves the background to the parent, for example to keep a selected highlight.
+export function SpaceRow({ item, onClick, hoverable = true }) {
   const navigate = useNavigate();
   return (
     <article
       onClick={onClick ?? (() => navigate(`/space/${item.id}`))}
-      className="clickable flex items-center gap-4 border-b border-stone-100 px-5 py-4 transition last:border-0 hover:bg-stone-50"
+      className={`clickable flex items-center gap-4 border-b border-stone-100 px-5 py-4 transition last:border-0 ${
+        hoverable ? 'hover:bg-stone-50' : ''
+      }`}
     >
       <Photo item={item} className="h-20 w-20 flex-none rounded-xl" iconSize={22} />
       <div className="min-w-0 flex-1">
