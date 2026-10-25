@@ -1,6 +1,6 @@
 import pytest
 
-from caches.auth import TOKEN_TTL, _token_key, refresh_token
+from caches.auth import TOKEN_TTL, _sessions_key, _token_key, refresh_token
 from config.cache_config import DAY, redis_client
 
 pytestmark = pytest.mark.usefixtures("services")
@@ -112,9 +112,48 @@ class TestLogout:
         assert (await client.post("/api/auth/logout")).status_code == 401
 
 
-class TestResetPassword:
-    async def test_changes_password_and_revokes_token(self, client, register):
+class TestLogoutAll:
+    async def _login(self, client, user):
+        resp = await client.post("/api/auth/login", json={"email": user.email, "password": user.password})
+        return resp.json()["data"]["token"]
+
+    async def test_revokes_every_token_of_the_user(self, client, register):
         user = await register()
+        second = await self._login(client, user)
+        assert await redis_client.scard(_sessions_key(user.id)) == 2
+
+        resp = await client.post("/api/auth/logout-all", headers=user.headers)
+        assert resp.status_code == 200
+
+        assert (await client.get("/api/users/me", headers=user.headers)).status_code == 401
+        assert (await client.get("/api/users/me", headers={"Authorization": f"Bearer {second}"})).status_code == 401
+        assert await redis_client.exists(_sessions_key(user.id)) == 0
+
+    async def test_leaves_other_users_alone(self, client, register):
+        alice = await register(username="alice", email="alice@example.com")
+        bob = await register(username="bob", email="bob@example.com")
+
+        await client.post("/api/auth/logout-all", headers=alice.headers)
+
+        assert (await client.get("/api/users/me", headers=bob.headers)).status_code == 200
+
+    async def test_single_logout_removes_token_from_session_set(self, client, register):
+        user = await register()
+        second = await self._login(client, user)
+
+        await client.post("/api/auth/logout", headers=user.headers)
+
+        assert set(await redis_client.smembers(_sessions_key(user.id))) == {second}
+
+    async def test_requires_auth(self, client):
+        assert (await client.post("/api/auth/logout-all")).status_code == 401
+
+
+class TestResetPassword:
+    async def test_changes_password_and_revokes_all_tokens(self, client, register):
+        user = await register()
+        second = await client.post("/api/auth/login", json={"email": user.email, "password": user.password})
+        second_headers = {"Authorization": f"Bearer {second.json()['data']['token']}"}
         resp = await client.post(
             "/api/auth/reset-password",
             json={"old_password": user.password, "new_password": "brand-new-password"},
@@ -122,8 +161,9 @@ class TestResetPassword:
         )
         assert resp.status_code == 200
         assert (await client.get("/api/users/me", headers=user.headers)).status_code == 401
+        assert (await client.get("/api/users/me", headers=second_headers)).status_code == 401
 
-        old = await client.post("/api/auth/login", json={"email": user.email, "password": user.password})
+        old =await client.post("/api/auth/login", json={"email": user.email, "password": user.password})
         new = await client.post("/api/auth/login", json={"email": user.email, "password": "brand-new-password"})
         assert old.status_code == 400
         assert new.status_code == 200

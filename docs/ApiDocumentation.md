@@ -121,6 +121,16 @@ Invalidate the current access token.
 - **Logic:** add token to `blacklist:{token}` in Redis (TTL = remaining token TTL); delete
   `session:{user_id}`.
 
+### 1.5 `POST /auth/logout-all`
+Log the user out of every device.
+
+- **Auth:** required
+- **Request:** empty body.
+- **Response `200`** — `"Logged out of all devices"`
+- **Logic:** every token issued to the user is tracked in the Redis set `user_sessions:{user_id}`;
+  all `token:{token}` keys in the set and the set itself are deleted. `POST /auth/reset-password`
+  does the same.
+
 > **Phase 2 — Google Login.** PRD lists Google OAuth. Add `POST /auth/google` (exchange Google
 > ID token → platform tokens) when you get there; not required for MVP.
 

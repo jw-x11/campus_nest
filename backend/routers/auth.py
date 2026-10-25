@@ -7,7 +7,7 @@ from utils.auth import verify_password
 from crud.users import create_user, get_user_by_email, get_user_by_username
 from crud.auth import change_password
 from config.db_config import get_db
-from caches.auth import create_token, revoke_token
+from caches.auth import create_token, revoke_token, revoke_all_tokens
 
 from schemas.auth import AuthRegisterRequest, AuthLoginResponse, AuthLoginRequest, ChangePasswordRequest
 from schemas.users import UserInfoResponse
@@ -67,6 +67,15 @@ async def logout(user : User = Depends(user_dep.get_current_user), authorization
     return success_response(message=f"User {user.username} logged out successfully", data=None)
 
 
+@api_auth.post("/logout-all")
+async def logout_all(user : User = Depends(user_dep.get_current_user)):
+    '''
+    Log a user out of every device
+    '''
+    await revoke_all_tokens(user.id)
+    return success_response(message="Logged out of all devices", data=None)
+
+
 @api_auth.post("/reset-password")
 async def reset_password(request: ChangePasswordRequest, db: AsyncSession = Depends(get_db), user : User = Depends(user_dep.get_current_user), authorization: str = Header(...)):
     '''
@@ -78,5 +87,5 @@ async def reset_password(request: ChangePasswordRequest, db: AsyncSession = Depe
     result = await change_password(db, user, request.new_password)
     if not result:
         raise HTTPException(status_code=400, detail="Failed to reset password")
-    await revoke_token(user_dep.get_bearer_token(authorization))
+    await revoke_all_tokens(user.id)
     return success_response(message="Password reset successful", data=None)
