@@ -1,3 +1,4 @@
+alembic==1.20.1
 aioboto3==15.5.0
 aiobotocore==2.25.1
 aiofiles==25.1.0
@@ -29,6 +30,7 @@ httpx==0.28.1
 idna==3.18
 jmespath==1.1.0
 limits==5.8.0
+Mako==1.4.3
 multidict==6.7.1
 packaging==26.3
 pillow==12.2.0
