@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -15,11 +15,11 @@ from routers.saved_space import api_saved_space
 from routers.map import api_map
 from jobs.booking_status import run_booking_status_job
 from jobs.view_count_flush import flush_view_counts_now, run_view_count_flusher
+from utils.rate_limit import rate_limit
 
 # TODO: SocketIO live message
 # TODO: Reviews and comments section
 # TODO: Add logging and analytics
-# TODO: Rate Limiting
 # TODO: Tests: Integration, e2e
 # TODO: Stripe payment integration
 
@@ -54,13 +54,16 @@ app.add_middleware(
 app_router = APIRouter()
 app.include_router(app_router, prefix="/api")
 
-app_router.include_router(api_auth, prefix="/auth", tags=["auth"])
-app_router.include_router(api_users, prefix="/users", tags=["users"])
-app_router.include_router(api_spaces, prefix="/spaces", tags=["spaces"])
-app_router.include_router(api_bookings, prefix="/bookings", tags=["bookings"])
-app_router.include_router(api_view_history, prefix="/history", tags=["view-history"])
-app_router.include_router(api_saved_space, prefix="/saved", tags=["saved-space"])
-app_router.include_router(api_map, prefix="/map", tags=["map"])
+# Every /api route counts against the default limit; routers and routes add stricter ones.
+default_limit = [Depends(rate_limit("default"))]
+
+app_router.include_router(api_auth, prefix="/auth", tags=["auth"], dependencies=default_limit)
+app_router.include_router(api_users, prefix="/users", tags=["users"], dependencies=default_limit)
+app_router.include_router(api_spaces, prefix="/spaces", tags=["spaces"], dependencies=default_limit)
+app_router.include_router(api_bookings, prefix="/bookings", tags=["bookings"], dependencies=default_limit)
+app_router.include_router(api_view_history, prefix="/history", tags=["view-history"], dependencies=default_limit)
+app_router.include_router(api_saved_space, prefix="/saved", tags=["saved-space"], dependencies=default_limit)
+app_router.include_router(api_map, prefix="/map", tags=["map"], dependencies=default_limit)
 
 @app.get("/api/health")
 def health():

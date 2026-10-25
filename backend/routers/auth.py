@@ -12,6 +12,7 @@ from caches.auth import create_token, revoke_token, revoke_all_tokens
 from schemas.auth import AuthRegisterRequest, AuthLoginResponse, AuthLoginRequest, ChangePasswordRequest
 from schemas.users import UserInfoResponse
 import utils.deps as user_dep
+from utils.rate_limit import check, rate_limit
 
 api_auth = APIRouter()
 
@@ -19,7 +20,7 @@ api_auth = APIRouter()
 async def root():
     return success_response(message="Auth API")
 
-@api_auth.post("/register")
+@api_auth.post("/register", dependencies=[Depends(rate_limit("auth:register", by="ip"))])
 async def register(request: AuthRegisterRequest, db: AsyncSession = Depends(get_db)):
     '''
     Register a new user
@@ -42,11 +43,13 @@ async def register(request: AuthRegisterRequest, db: AsyncSession = Depends(get_
     return success_response(message="Register successful", data=response_data)
 
 
-@api_auth.post("/login")
+@api_auth.post("/login", dependencies=[Depends(rate_limit("auth:login", by="ip"))])
 async def login(request: AuthLoginRequest, db: AsyncSession = Depends(get_db)):
     '''
     Login a user
     '''
+    # Also per email, so one account cannot be guessed at from many addresses.
+    await check("auth:login-email", f"email:{request.email.lower()}")
     user = await get_user_by_email(db, request.email)
     if not user:
         raise HTTPException(status_code=400, detail="Invalid email or password")
@@ -76,7 +79,7 @@ async def logout_all(user : User = Depends(user_dep.get_current_user)):
     return success_response(message="Logged out of all devices", data=None)
 
 
-@api_auth.post("/reset-password")
+@api_auth.post("/reset-password", dependencies=[Depends(rate_limit("auth:reset-password"))])
 async def reset_password(request: ChangePasswordRequest, db: AsyncSession = Depends(get_db), user : User = Depends(user_dep.get_current_user), authorization: str = Header(...)):
     '''
     Reset password for a user

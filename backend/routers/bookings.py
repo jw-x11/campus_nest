@@ -36,10 +36,14 @@ from schemas.bookings import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.deps import get_current_user, get_current_user_info
 from utils.response import success_response
+from utils.rate_limit import rate_limit
 
 # Router: /api/bookings
 
 api_bookings = APIRouter()
+
+# Creating and changing data has a lower limit than reading it.
+write_limit = [Depends(rate_limit("write"))]
 
 
 def booking_role(user_id: UUID, booking: Booking) -> Literal["renter", "owner"]:
@@ -57,7 +61,7 @@ async def status(user: Annotated[UserInfoResponse, Depends(get_current_user_info
 
 
 # Request a booking.
-@api_bookings.post("/")
+@api_bookings.post("/", dependencies=write_limit)
 async def create_booking(
     request: BookingRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -132,7 +136,7 @@ async def get_booking_details(
     return success_response(message="Booking details retrieved successfully", data=booking)
 
 
-@api_bookings.put("/details/{booking_id}")
+@api_bookings.put("/details/{booking_id}", dependencies=write_limit)
 async def update_booking(
     booking_id: UUID,
     body: BookingUpdateRequest,
@@ -183,7 +187,7 @@ async def update_booking(
 
 
 # Cancel a booking. Caller must be the renter or the listing owner.
-@api_bookings.patch("/cancel")
+@api_bookings.patch("/cancel", dependencies=write_limit)
 async def cancel_booking(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -222,7 +226,7 @@ async def cancel_booking(
 
 
 # Take back the caller's own cancel request on a confirmed or active booking.
-@api_bookings.patch("/cancel/withdraw")
+@api_bookings.patch("/cancel/withdraw", dependencies=write_limit)
 async def withdraw_cancel_request(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -245,7 +249,7 @@ async def withdraw_cancel_request(
 
 
 # Owner accepts a pending request; mark accepted.
-@api_bookings.patch("/accept")
+@api_bookings.patch("/accept", dependencies=write_limit)
 async def accept_booking(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -271,7 +275,7 @@ async def accept_booking(
 
 
 # Owner confirms an accepted booking. Stands in for payment until payments exist.
-@api_bookings.patch("/confirm")
+@api_bookings.patch("/confirm", dependencies=write_limit)
 async def confirm_accepted_booking(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -295,7 +299,7 @@ async def confirm_accepted_booking(
 
 
 # Owner declines a pending request; mark declined.
-@api_bookings.patch("/decline")
+@api_bookings.patch("/decline", dependencies=write_limit)
 async def decline_booking(
     body: BookingSpaceActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -323,7 +327,7 @@ async def decline_booking(
 
 
 # Owner offers a flat special deal after negotiating. Overwrites the original price.
-@api_bookings.patch("/special")
+@api_bookings.patch("/special", dependencies=write_limit)
 async def special_deal(
     body: BookingSpecialDealRequest,
     db: Annotated[AsyncSession, Depends(get_db)],

@@ -22,8 +22,9 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         "code": exc.status_code,
         "message": exc.detail,
         "data": None,
-    }
-
+    },
+        # Keeps headers such as Retry-After on a 429.
+        headers=getattr(exc, "headers", None),
 )
 
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:

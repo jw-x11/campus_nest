@@ -1,3 +1,7 @@
+# Coarse per-address limit on the API that drops floods before they reach the backend.
+# The backend has the finer per-user and per-route limits.
+limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;
+
 server {
     listen 80;
     server_name _;
@@ -5,6 +9,8 @@ server {
     client_max_body_size 5m;
 
     location /api/ {
+        limit_req zone=api burst=40 nodelay;
+        limit_req_status 429;
         proxy_pass http://host.docker.internal:5001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

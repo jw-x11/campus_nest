@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from crud.map import GeocodeUnavailable, autocomplete_address, geocode_address
 from schemas.users import UserInfoResponse
 from utils.deps import get_current_user_info
+from utils.rate_limit import rate_limit
 from utils.response import success_response
 
 # Router: /api/map
-api_map = APIRouter()
+# Each request may call the geocoder, so map has its own lower limit.
+api_map = APIRouter(dependencies=[Depends(rate_limit("map"))])
 
 
 # Preview where an address lands on the map, for example before the listing form is submitted.

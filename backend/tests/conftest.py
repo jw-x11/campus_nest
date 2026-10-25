@@ -60,6 +60,7 @@ import httpx  # noqa: E402
 from PIL import Image  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
+import config.rate_limit_config as rate_limit_config  # noqa: E402
 import config.s3db_config as s3db_config  # noqa: E402
 from caches.space import delete_space_cache  # noqa: E402
 import crud.map  # noqa: E402
@@ -148,6 +149,13 @@ def _fast_bcrypt():
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(bcrypt, "gensalt", lambda rounds=12, prefix=b"2b": original(4, prefix))
         yield
+
+
+@pytest.fixture(autouse=True)
+def _no_rate_limits(monkeypatch):
+    # Every test client comes from 127.0.0.1, so the auth limits would trip within a few registrations.
+    # rate_limit_test.py switches them back on.
+    monkeypatch.setattr(rate_limit_config, "RATE_LIMIT_ENABLED", False)
 
 
 # --------------------------------------------------------------------------- fake S3

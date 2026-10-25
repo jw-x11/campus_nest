@@ -19,6 +19,7 @@ from schemas.spaces import (
     SpaceSearchQuery,
 )
 from utils.response import success_response
+from utils.rate_limit import rate_limit
 from crud.map import GeocodeUnavailable, geocode_address
 from crud.spaces import (
     count_space_images,
@@ -43,6 +44,9 @@ MAX_SPACE_IMAGES = 10
 
 # Router: /api/spaces
 api_spaces = APIRouter()
+
+# Creating and changing data has a lower limit than reading it.
+write_limit = [Depends(rate_limit("write"))]
 
 
 
@@ -192,7 +196,7 @@ async def get_spaces_from_owner(
 
 
 
-@api_spaces.post("/post")
+@api_spaces.post("/post", dependencies=write_limit)
 async def post_space(
     body: SpaceInfoRequest,
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
@@ -222,7 +226,7 @@ async def get_space_views(
 
 
 
-@api_spaces.put("/renew/{space_id}")
+@api_spaces.put("/renew/{space_id}", dependencies=write_limit)
 async def renew_space(
     space_id: int,
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
@@ -254,7 +258,7 @@ async def get_space(space_id: int, db: Annotated[AsyncSession, Depends(get_db)])
 
 
 
-@api_spaces.put("/{space_id}")
+@api_spaces.put("/{space_id}", dependencies=write_limit)
 async def update_space(
     space_id: int,
     body: SpaceInfoRequest,
@@ -276,7 +280,7 @@ async def update_space(
 
 
 # Owner stops or resumes taking new booking requests; the listing stays visible.
-@api_spaces.patch("/{space_id}/accepting")
+@api_spaces.patch("/{space_id}/accepting", dependencies=write_limit)
 async def update_space_accepting(
     space_id: int,
     body: SpaceAcceptingRequest,
@@ -296,7 +300,7 @@ async def update_space_accepting(
 
 
 
-@api_spaces.delete("/{space_id}")
+@api_spaces.delete("/{space_id}", dependencies=write_limit)
 async def delete_space(
     space_id: int,
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
@@ -309,7 +313,7 @@ async def delete_space(
     return success_response(message="Space deleted", data=None)
 
 
-@api_spaces.post("/{space_id}/images")
+@api_spaces.post("/{space_id}/images", dependencies=write_limit)
 async def post_space_images(
     space_id: int,
     user: Annotated[UserInfoResponse, Depends(get_current_user_info)],
