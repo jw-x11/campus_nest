@@ -70,12 +70,13 @@ from config.cache_config import redis_client  # noqa: E402
 from config.db_config import Base, SessionLocal, engine  # noqa: E402
 from main import app  # noqa: E402
 from models.bookings import Booking  # noqa: E402
+from models.messages import Conversation, Message  # noqa: F401,E402
 from models.saved_space import SavedSpace  # noqa: F401,E402
 from models.spaces import Space  # noqa: E402
 from models.users import User  # noqa: F401,E402
 from models.view_history import ViewHistory  # noqa: F401,E402
 
-TABLES = ("users", "spaces", "space_images", "saved_spaces", "view_history", "bookings")
+TABLES = ("users", "spaces", "space_images", "saved_spaces", "view_history", "bookings", "conversations", "messages")
 ENUMS = {
     "payment_type": ("single", "recurring_per_month", "recurring_per_week"),
     "booking_status": (

@@ -13,11 +13,12 @@ from routers.bookings import api_bookings
 from routers.view_history import api_view_history
 from routers.saved_space import api_saved_space
 from routers.map import api_map
+from routers.messages import api_messages, api_messages_ws
 from jobs.booking_status import run_booking_status_job
 from jobs.view_count_flush import flush_view_counts_now, run_view_count_flusher
+from utils.message_hub import hub
 from utils.rate_limit import rate_limit
 
-# TODO: SocketIO live message
 # TODO: Reviews and comments section
 # TODO: Add logging and analytics
 # TODO: Tests: Integration, e2e
@@ -30,11 +31,14 @@ async def lifespan(app: FastAPI):
     await s3db_config.connect()
     view_flusher = asyncio.create_task(run_view_count_flusher())
     booking_status_job = asyncio.create_task(run_booking_status_job())
+    message_hub = asyncio.create_task(hub.run())
+    message_heartbeat = asyncio.create_task(hub.run_heartbeat())
     yield
-    for job in (view_flusher, booking_status_job):
+    for job in (view_flusher, booking_status_job, message_hub, message_heartbeat):
         job.cancel()
         with suppress(asyncio.CancelledError):
             await job
+    await hub.close()
     # Write views from the last interval before the database pool closes.
     await flush_view_counts_now()
     await db_config.disconnect()
@@ -64,6 +68,9 @@ app_router.include_router(api_bookings, prefix="/bookings", tags=["bookings"], d
 app_router.include_router(api_view_history, prefix="/history", tags=["view-history"], dependencies=default_limit)
 app_router.include_router(api_saved_space, prefix="/saved", tags=["saved-space"], dependencies=default_limit)
 app_router.include_router(api_map, prefix="/map", tags=["map"], dependencies=default_limit)
+app_router.include_router(api_messages, prefix="/messages", tags=["messages"], dependencies=default_limit)
+# No default_limit: the limit dependency reads an HTTP request, which a WebSocket is not. Sends are limited inside.
+app_router.include_router(api_messages_ws, prefix="/messages", tags=["messages"])
 
 @app.get("/api/health")
 def health():

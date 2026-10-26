@@ -43,6 +43,8 @@ TIERS: dict[str, Tier] = {
     "map": Tier("30/minute", "sliding", fail_open=True),
     # Creating and changing listings, bookings and profiles, including uploads.
     "write": Tier("20/minute", "sliding", fail_open=True),
+    # Chat sends, over REST and the WebSocket alike, on top of "write" for the REST route.
+    "message": Tier("30/minute;500/hour", "sliding", fail_open=True),
     # Every /api route.
     "default": Tier("120/minute", "sliding", fail_open=True),
 }

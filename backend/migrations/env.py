@@ -10,6 +10,7 @@ from alembic import context
 from config.db_config import Base, DATABASE_URL
 # Import every model module so its tables register on Base.metadata.
 import models.bookings  # noqa: F401
+import models.messages  # noqa: F401
 import models.saved_space  # noqa: F401
 import models.spaces  # noqa: F401
 import models.users  # noqa: F401

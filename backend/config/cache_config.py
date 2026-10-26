@@ -231,6 +231,89 @@ async def mget_cache(keys: list[str]) -> list[str | None]:
     return await redis_client.mget(keys)
 
 
+async def exists_cache(key: str) -> bool | None:
+    """True when the key exists. None when the lookup fails."""
+    try:
+        return bool(await redis_client.exists(key))
+    except Exception as e:
+        print(f"Error checking cache: {e}")
+        return None
+
+
+async def getdel_cache(key: str) -> str | None:
+    """Value for this key, deleted in the same step so it can be read once. None when missing."""
+    try:
+        return await redis_client.getdel(key)
+    except Exception as e:
+        print(f"Error getting and deleting cache: {e}")
+        return None
+
+
+async def hgetall_cache(key: str) -> dict[str, str] | None:
+    """Every field of a hash. An empty dict when the key is missing, None when the lookup fails."""
+    try:
+        return await redis_client.hgetall(key)
+    except Exception as e:
+        print(f"Error getting hash cache: {e}")
+        return None
+
+
+async def hset_cache(key: str, mapping: dict[Any, Any], ttl: int = HOUR) -> bool:
+    """Replace a hash with mapping and set its TTL. An empty mapping still writes the key, as an empty marker field."""
+    try:
+        async with redis_client.pipeline(transaction=True) as pipe:
+            pipe.delete(key)
+            # Redis drops empty hashes, so a placeholder field keeps "known to be empty" apart from "missing".
+            pipe.hset(key, mapping={_member(k): v for k, v in mapping.items()} or {"_": 0})
+            pipe.expire(key, ttl)
+            await pipe.execute()
+        return True
+    except Exception as e:
+        print(f"Error setting hash cache: {e}")
+        return False
+
+
+# Checked and incremented in one script, so a key that expires in between is never recreated partly filled.
+_HINCRBY_IF_EXISTS = """
+if redis.call('EXISTS', KEYS[1]) == 1 then
+    return redis.call('HINCRBY', KEYS[1], ARGV[1], ARGV[2])
+end
+return nil
+"""
+
+
+async def hincrby_existing_cache(key: str, field: Any, increment: int = 1) -> int | None:
+    """Increment one hash field, only when the hash exists. None when it is missing or the call fails."""
+    try:
+        return await redis_client.eval(_HINCRBY_IF_EXISTS, 1, key, _member(field), increment)
+    except Exception as e:
+        print(f"Error incrementing hash cache: {e}")
+        return None
+
+
+async def hdel_cache(key: str, *fields: Any) -> bool:
+    """Remove fields from a hash."""
+    if not fields:
+        return False
+    try:
+        await redis_client.hdel(key, *(_member(field) for field in fields))
+        return True
+    except Exception as e:
+        print(f"Error deleting hash cache fields: {e}")
+        return False
+
+
+async def publish(channel: str, value: Any) -> int | None:
+    """Publish to a pub/sub channel. Dicts and lists are sent as JSON. Returns how many subscribers got it."""
+    try:
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False)
+        return await redis_client.publish(channel, value)
+    except Exception as e:
+        print(f"Error publishing to {channel}: {e}")
+        return None
+
+
 def get_transaction_pipeline() -> Pipeline:
     """MULTI/EXEC pipeline. Use with async with, queue commands, then await execute()."""
     return redis_client.pipeline(transaction=True)
