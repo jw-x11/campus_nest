@@ -319,4 +319,17 @@ textarea.field, textarea.input {
   .nav-links .nav-link-label {
     display: none;
   }
+  /* The links outgrow a phone screen; they scroll sideways instead of being cut off. */
+  .nav-links {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-links > * {
+    flex: none;
+  }
+  .brand {
+    flex: none;
+    white-space: nowrap;
+  }
 }

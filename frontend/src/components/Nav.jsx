@@ -1,6 +1,7 @@
 import { NavLink, Link } from 'react-router-dom';
 import { HouseIcon } from './icons.jsx';
 import { useApp } from '../context/AppContext.jsx';
+import { useMessaging } from '../context/MessagingContext.jsx';
 import { initials } from '../api.js';
 
 export function Brand() {
@@ -18,6 +19,7 @@ const linkCls = ({ isActive }) => `nav-link${isActive ? ' active' : ''}`;
 
 export default function Nav() {
   const { saved, user } = useApp();
+  const { unreadTotal } = useMessaging();
   return (
     <nav className="nav">
       <div className="nav-inner">
@@ -40,6 +42,15 @@ export default function Nav() {
           <NavLink to="/bookings" className={linkCls}>
             Bookings
           </NavLink>
+          {user && (
+            <NavLink to="/messages" className={linkCls} aria-label={unreadTotal > 0 ? `Messages, ${unreadTotal} unread` : 'Messages'}>
+              Messages{unreadTotal > 0 && (
+                <span className="ml-1.5 rounded-full bg-[#2b2b2b] px-1.5 py-0.5 font-mono text-[10.5px] text-white">
+                  {unreadTotal > 99 ? '99+' : unreadTotal}
+                </span>
+              )}
+            </NavLink>
+          )}
           {user ? (
             <Link
               to="/profile"

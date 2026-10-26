@@ -19,7 +19,6 @@ from jobs.view_count_flush import flush_view_counts_now, run_view_count_flusher
 from utils.message_hub import hub
 from utils.rate_limit import rate_limit
 
-# TODO: Reviews and comments section
 # TODO: Add logging and analytics
 # TODO: Tests: Integration, e2e
 # TODO: Stripe payment integration

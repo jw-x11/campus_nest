@@ -98,7 +98,22 @@ export default function App() {
               </RequireAuth>
             }
           />
-          <Route path="/messages" element={<Messages />} />
+          <Route
+            path="/messages"
+            element={
+              <RequireAuth>
+                <Messages />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/messages/:conversationId"
+            element={
+              <RequireAuth>
+                <Messages />
+              </RequireAuth>
+            }
+          />
           <Route
             path="/profile"
             element={

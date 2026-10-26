@@ -248,7 +248,7 @@ function Gallery({ images, thumbnail }) {
   );
 }
 
-function OwnerCard({ ownerId, isOwner, selfUser }) {
+function OwnerCard({ ownerId, spaceId, isOwner, selfUser }) {
   const [owner, setOwner] = useState(null);
 
   useEffect(() => {
@@ -303,7 +303,7 @@ function OwnerCard({ ownerId, isOwner, selfUser }) {
       )}
       <div className="mt-4 flex gap-2">
         <Link to={`/owner/${owner.id}`} className="btn btn-sm flex-1">View all listings</Link>
-        <Link to="/messages" className="btn btn-sm flex-1">Message</Link>
+        <Link to={`/messages?space=${spaceId}`} className="btn btn-sm flex-1">Message</Link>
       </div>
     </div>
   );
@@ -438,14 +438,16 @@ export default function SpaceDetail() {  const { id } = useParams();
                 <span className="btn flex-1 !px-2">
                   <SaveButton id={item.id} /> Save
                 </span>
-                <Link to="/messages" className="btn flex-1">Message</Link>
+                {!isOwner && (
+                  <Link to={`/messages?space=${item.id}`} className="btn flex-1">Message</Link>
+                )}
               </div>
               <p className="mt-3 text-center text-xs leading-relaxed text-stone-400">
                 You won&apos;t be charged yet.
                 <br />Host approves within ~24h.
               </p>
             </div>
-            <OwnerCard ownerId={item.ownerId} isOwner={isOwner} selfUser={user} />
+            <OwnerCard ownerId={item.ownerId} spaceId={item.id} isOwner={isOwner} selfUser={user} />
           </aside>
         </div>
       )}

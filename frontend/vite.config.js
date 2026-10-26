@@ -11,6 +11,8 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:5001',
         changeOrigin: true,
+        // Forward WebSocket upgrades too, for /api/messages/ws.
+        ws: true,
       },
       '/media': {
         target: 'http://127.0.0.1',

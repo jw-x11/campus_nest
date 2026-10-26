@@ -229,6 +229,44 @@ export function mapBooking(b) {
   };
 }
 
+export function mapMessage(m) {
+  if (!m) return null;
+  return {
+    id: String(m.id),
+    conversationId: String(m.conversation_id ?? m.conversationId),
+    senderId: String(m.sender_id ?? m.senderId),
+    body: m.body ?? '',
+    clientMsgId: m.client_msg_id ?? m.clientMsgId,
+    createdAt: m.created_at ?? m.createdAt,
+  };
+}
+
+export function mapConversation(c) {
+  if (!c) return null;
+  const other = c.other_user ?? c.otherUser;
+  const last = c.last_message ?? c.lastMessage;
+  return {
+    id: String(c.id),
+    spaceId: String(c.space_id ?? c.spaceId),
+    bookingId: c.booking_id ?? c.bookingId ?? null,
+    renterId: String(c.renter_id ?? c.renterId),
+    ownerId: String(c.owner_id ?? c.ownerId),
+    role: c.role,
+    otherUser: other
+      ? {
+          id: String(other.id),
+          username: other.username || 'Unknown user',
+          avatarUrl: other.avatar_url ?? other.avatarUrl ?? '',
+          isVerified: Boolean(other.is_verified ?? other.isVerified),
+        }
+      : null,
+    lastMessage: mapMessage(last),
+    lastMessageAt: c.last_message_at ?? c.lastMessageAt ?? null,
+    unreadCount: c.unread_count ?? c.unreadCount ?? 0,
+    createdAt: c.created_at ?? c.createdAt,
+  };
+}
+
 function unwrapAuth(data) {
   return {
     token: data.token,
@@ -585,4 +623,73 @@ export function setSpecialDeal(id, price) {
     auth: true,
     body: { booking_id: id, price },
   });
+}
+
+/* ---------- messages ---------- */
+
+/** The thread about a space, created on first use. With bookingId, the parties come from that booking. */
+export function openConversation({ spaceId, bookingId }) {
+  return api('/messages/conversations', {
+    method: 'POST',
+    auth: true,
+    body: { space_id: Number(spaceId), ...(bookingId ? { booking_id: bookingId } : {}) },
+  }).then(mapConversation);
+}
+
+export async function listConversations(page = 1, pageSize = 50) {
+  const data = await api('/messages/conversations', {
+    auth: true,
+    query: { page, page_size: pageSize },
+  });
+  return {
+    total: data?.total_count ?? 0,
+    conversations: (data?.conversations ?? []).map(mapConversation),
+  };
+}
+
+export function getConversation(id) {
+  return api(`/messages/conversations/${id}`, { auth: true }).then(mapConversation);
+}
+
+/**
+ * Messages oldest first. before pages back from a message id; after catches up after one;
+ * neither gives the newest page. hasMore says another page exists in that direction.
+ */
+export async function listMessages(conversationId, { before, after, limit = 50 } = {}) {
+  const data = await api(`/messages/conversations/${conversationId}/messages`, {
+    auth: true,
+    query: { before, after, limit },
+  });
+  return {
+    hasMore: Boolean(data?.has_more),
+    messages: (data?.messages ?? []).map(mapMessage),
+  };
+}
+
+/** Safe to retry with the same clientMsgId: the server returns the original message. */
+export function sendMessage(conversationId, body, clientMsgId) {
+  return api(`/messages/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    auth: true,
+    body: { body, client_msg_id: clientMsgId },
+  }).then(mapMessage);
+}
+
+export function markConversationRead(conversationId) {
+  return api(`/messages/conversations/${conversationId}/read`, { method: 'POST', auth: true });
+}
+
+export async function getUnread() {
+  const data = await api('/messages/unread', { auth: true });
+  return { total: data?.total ?? 0, conversations: data?.conversations ?? {} };
+}
+
+/** URL for the live socket. Browsers cannot send the auth header on a WebSocket, so it carries a single-use ticket. */
+export async function messageSocketUrl() {
+  const data = await api('/messages/ws-ticket', { method: 'POST', auth: true });
+  const base = new URL(API_BASE, window.location.href);
+  base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
+  base.pathname = `${base.pathname.replace(/\/$/, '')}/messages/ws`;
+  base.search = new URLSearchParams({ ticket: data.ticket }).toString();
+  return base.toString();
 }

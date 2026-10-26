@@ -9,41 +9,12 @@ import {
   declineBooking,
   formatDate,
   formatPrice,
-  getSpace,
   listBookings,
   setSpecialDeal,
   updateBooking,
   withdrawCancel,
 } from '../api.js';
-
-const spaceTitleCache = new Map();
-
-async function spaceTitle(spaceId) {
-  const key = String(spaceId);
-  if (spaceTitleCache.has(key)) return spaceTitleCache.get(key);
-  try {
-    const s = await getSpace(key);
-    spaceTitleCache.set(key, s.title);
-    return s.title;
-  } catch {
-    return `Space #${key}`;
-  }
-}
-
-function useSpaceTitles(bookings) {
-  const [titles, setTitles] = useState({});
-  useEffect(() => {
-    let cancelled = false;
-    const ids = [...new Set(bookings.map((b) => String(b.spaceId)))];
-    Promise.all(ids.map((id) => spaceTitle(id).then((t) => [id, t]))).then((pairs) => {
-      if (!cancelled) setTitles(Object.fromEntries(pairs));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [bookings]);
-  return titles;
-}
+import { useSpaceTitles } from '../spaceTitles.js';
 
 function BookingCard({ booking, titles, role, onChanged }) {
   const [busy, setBusy] = useState('');
@@ -113,6 +84,9 @@ function BookingCard({ booking, titles, role, onChanged }) {
             )}
           </>
         )}
+        <Link to={`/messages?space=${booking.spaceId}&booking=${booking.id}`} className="btn btn-sm">
+          Message {isRenter ? 'host' : 'renter'}
+        </Link>
         {isRenter && editable && (
           <button className="btn btn-sm" onClick={() => setEditing((v) => !v)}>
             {editing ? 'Close date editor' : 'Change dates'}
@@ -187,7 +161,7 @@ export default function Bookings() {
     load();
   }, [load]);
 
-  const titles = useSpaceTitles(bookings);
+  const titles = useSpaceTitles(bookings.map((b) => b.spaceId));
   const statusOptions = useMemo(() => bookingStatuses, []);
 
   return (
