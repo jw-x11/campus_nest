@@ -6,11 +6,28 @@ import { Field, EmptyState, LoadingState, ErrorState, Pagination } from '../comp
 import { searchSpaces } from '../api.js';
 import { stateCode, US_STATES } from '../data.js';
 
+// Sends no sort, so the API ranks keyword results by relevance. Only offered with a keyword.
+const BEST_MATCH = { label: 'Best match', sortBy: undefined, sortOrder: undefined };
+const NEWEST = { label: 'Newest', sortBy: 'post_date', sortOrder: 'desc' };
 const SORTS = [
-  { label: 'Newest', sortBy: 'post_date', sortOrder: 'desc' },
+  BEST_MATCH,
+  NEWEST,
   { label: 'Price ↑', sortBy: 'price', sortOrder: 'asc' },
   { label: 'Price ↓', sortBy: 'price', sortOrder: 'desc' },
 ];
+
+// The sort used when none is picked: Best match with a keyword, Newest without one.
+function defaultSort(keyword) {
+  return keyword ? BEST_MATCH : NEWEST;
+}
+
+// Applying or clearing a keyword moves a default sort to the new default. A sort the user picked stays,
+// except Best match, which needs a keyword.
+function withSortForKeyword(next, prev) {
+  if (next.sort === defaultSort(prev.keyword)) return { ...next, sort: defaultSort(next.keyword) };
+  if (!next.keyword && next.sort === BEST_MATCH) return { ...next, sort: NEWEST };
+  return next;
+}
 
 const PRICE_TYPES = [
   { label: 'Any price', value: '' },
@@ -24,8 +41,8 @@ const PAGE_SIZE = 12;
 // Read initial search state from the URL so Back / shared links restore it.
 function readFromParams(params) {
   const sort =
-    SORTS.find((s) => s.sortBy === params.get('sort') && s.sortOrder === params.get('order')) ||
-    SORTS[0];
+    SORTS.find((s) => s.sortBy && s.sortBy === params.get('sort') && s.sortOrder === params.get('order')) ||
+    defaultSort(params.get('kw'));
   return {
     draft: {
       keyword: params.get('kw') || '',
@@ -55,7 +72,7 @@ function toParams(query, page) {
   if (query.maxPrice) p.max = query.maxPrice;
   if (query.availableFrom) p.from = query.availableFrom;
   if (query.availableTo) p.to = query.availableTo;
-  if (query.sort.label !== SORTS[0].label) {
+  if (query.sort !== defaultSort(query.keyword) && query.sort.sortBy) {
     p.sort = query.sort.sortBy;
     p.order = query.sort.sortOrder;
   }
@@ -120,7 +137,9 @@ export default function Search() {
 
   const submit = (e) => {
     e?.preventDefault();
-    setQuery(draft);
+    const next = withSortForKeyword(draft, query);
+    setDraft(next);
+    setQuery(next);
     setPage(1);
   };
 
@@ -158,12 +177,13 @@ export default function Search() {
             )}
           </span>
           <div className="flex gap-1.5">
-            {SORTS.map((s) => (
+            {SORTS.filter((s) => s !== BEST_MATCH || query.keyword).map((s) => (
               <button
                 key={s.label}
                 type="button"
                 onClick={() => {
-                  const next = { ...draft, sort: s };
+                  // Also applies a typed keyword. Best match falls back to Newest if the keyword was cleared.
+                  const next = { ...draft, sort: !draft.keyword && s === BEST_MATCH ? NEWEST : s };
                   setDraft(next);
                   setQuery(next);
                   setPage(1);
@@ -196,7 +216,7 @@ export default function Search() {
                 onClick={() => {
                   const cleared = {
                     keyword: '', city: '', state: '', postalCode: '', priceType: '',
-                    minPrice: '', maxPrice: '', availableFrom: '', availableTo: '', sort: SORTS[0],
+                    minPrice: '', maxPrice: '', availableFrom: '', availableTo: '', sort: NEWEST,
                   };
                   setDraft(cleared);
                   setQuery(cleared);

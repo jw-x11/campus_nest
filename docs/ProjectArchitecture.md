@@ -49,6 +49,7 @@
 | Database         | PostgreSQL + asyncpg              |
 | Media storage    | SeaweedFS (S3-compatible)         |
 | Cache / Sessions | Redis                             |
+| Listing search   | Elasticsearch (Kibana for inspecting the index); Postgres fallback |
 | Auth             | Google Login + UUID + bcrypt password |
 | Payments         | Stripe API (Phase 2)              |
 | Real-Time        | WebSockets + Redis Pub/Sub        |
@@ -149,6 +150,29 @@ if you need custom tokens).
 
 ---
 
+## 🔎 Listing Search (Elasticsearch)
+
+Postgres is the source of truth; Elasticsearch is a read index for `GET /spaces/all` and
+`GET /spaces/pins`. Design and trade-offs: `docs/adr/0002-listing-search-elasticsearch.md`.
+
+- **Services:** `elasticsearch` (`localhost:9200`) and `kibana` (`localhost:5601`) in
+  `docker-compose.yml`, with security off and bound to localhost for development.
+- **Index:** `config/es_config.py` holds the client and general helpers (`IndexSpec`, versioned
+  index creation, alias switching). `indices/spaces.py` holds the listing index: its alias,
+  settings, mappings and `space_document`. Searches and writes go through the alias
+  `spaces`, which points at a versioned index (`spaces_v1`, …). Address, owner, view count and
+  images are not indexed.
+- **Sync:** `create_space` and `_update_space` add the id to the Redis set `space:index:dirty`.
+  `jobs/search_index_sync.py` drains it every 2 seconds, reloads those rows and bulk-writes them
+  (or deletes ids whose row is gone).
+- **Query:** `crud/search.py` builds the query and returns ids; `search_space_ids` in
+  `crud/spaces.py` caches and hydrates them as before. If the index fails, search runs in Postgres
+  and the index is skipped for 30 seconds.
+- **Backfill / rebuild:** `python -m scripts.reindex_spaces` writes every listing;
+  `--rebuild` builds a new index with the current mapping and switches the alias to it.
+- **Tests:** run with `SEARCH_BACKEND=sql`; `tests/search_test.py` uses the alias `spaces_test`
+  and skips its index tests when Elasticsearch is not running.
+
 ## 🔑 Redis Key Design
 
 | Key Pattern                      | Value         | TTL       | Purpose                |
@@ -157,6 +181,7 @@ if you need custom tokens).
 | `blacklist:{token}`              | `1`           | token TTL | Logout blacklist       |
 | `space:{id}`                     | JSON          | 10 min    | Space detail cache     |
 | `search:{hash}`                  | JSON array    | 5 min     | Search results cache   |
+| `space:index:dirty`              | set of ids    | none      | Listings waiting to be written to the search index |
 | `lock:booking:{space_id}:{date}` | `1`           | 10 min    | Date availability lock |
 | `rate:{ip}:{endpoint}`           | counter       | 60 sec    | Rate limiting          |
 | `rating:{space_id}`              | float         | 1 hour    | Cached avg rating      |

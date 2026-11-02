@@ -4,7 +4,7 @@ from fastapi import FastAPI, APIRouter, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from config import db_config, s3db_config
+from config import db_config, es_config, s3db_config
 from config.exception_handlers import register_exception_handlers
 from routers.auth import api_auth
 from routers.users import api_users
@@ -14,7 +14,9 @@ from routers.view_history import api_view_history
 from routers.saved_space import api_saved_space
 from routers.map import api_map
 from routers.messages import api_messages, api_messages_ws
+from indices.spaces import SPACES_INDEX
 from jobs.booking_status import run_booking_status_job
+from jobs.search_index_sync import run_search_index_sync, sync_search_index_now
 from jobs.view_count_flush import flush_view_counts_now, run_view_count_flusher
 from utils.message_hub import hub
 from utils.rate_limit import rate_limit
@@ -28,20 +30,27 @@ from utils.rate_limit import rate_limit
 async def lifespan(app: FastAPI):
     await db_config.connect()
     await s3db_config.connect()
+    await es_config.connect(SPACES_INDEX)
     view_flusher = asyncio.create_task(run_view_count_flusher())
     booking_status_job = asyncio.create_task(run_booking_status_job())
     message_hub = asyncio.create_task(hub.run())
     message_heartbeat = asyncio.create_task(hub.run_heartbeat())
+    jobs = [view_flusher, booking_status_job, message_hub, message_heartbeat]
+    if es_config.search_enabled():
+        jobs.append(asyncio.create_task(run_search_index_sync()))
     yield
-    for job in (view_flusher, booking_status_job, message_hub, message_heartbeat):
+    for job in jobs:
         job.cancel()
         with suppress(asyncio.CancelledError):
             await job
     await hub.close()
-    # Write views from the last interval before the database pool closes.
+    # Write views and listing changes from the last interval before the database pool closes.
     await flush_view_counts_now()
+    if es_config.search_enabled():
+        await sync_search_index_now()
     await db_config.disconnect()
     await s3db_config.disconnect()
+    await es_config.disconnect()
 
 
 app = FastAPI(lifespan=lifespan)

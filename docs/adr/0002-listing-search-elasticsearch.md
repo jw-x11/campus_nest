@@ -1,6 +1,6 @@
 # ADR-002: Elasticsearch for listing search
 
-**Status:** Proposed
+**Status:** Accepted (implemented)
 **Deciders:** Project owner
 
 ## Context
@@ -68,15 +68,31 @@ Add Elasticsearch as a **secondary read index** for listing search. **Postgres s
 
 Add `es_data:` under `volumes`, `ELASTICSEARCH_URL=http://localhost:9200` to `.env.example`, and `elasticsearch[async]==9.5.1` to `requirements.txt`. Keep the client's major version the same as the server's. With Docker Desktop on Windows, the WSL VM may need `vm.max_map_count=262144`.
 
-### Client (`config/es_config.py`)
+### Client (`config/es_config.py`) and index definitions (`indices/`)
 
-Follow `db_config` and `s3db_config`: a module-level `AsyncElasticsearch` client, with `connect()` (create the index and alias if missing) and `disconnect()` called from `lifespan` in `main.py`.
+`config/es_config.py` holds only general pieces:
+- the client;
+- `search_enabled()`;
+- an `IndexSpec` (alias, settings, mappings);
+- `create_versioned_index`, `switch_alias` and `ensure_index`;
+- `connect(*specs)` and `disconnect()`.
+
+Each index is defined in `indices/` as an `IndexSpec` plus its document builder. The listing index is `indices/spaces.py` (`SPACES_INDEX`, `space_document`).
+
+Follows `db_config` and `s3db_config`: a module-level `AsyncElasticsearch` client, with `connect()` (create the index and alias if missing) and `disconnect()` called from `lifespan` in `main.py`.
+
+- The client uses a 1-second timeout and no retries, so a down cluster fails fast.
+- `connect()` never stops startup. If the index can't be created, search runs on SQL.
+- `SEARCH_BACKEND=sql` turns the index off entirely: no sync job, and all search runs in Postgres. The tests use this.
+- `ES_SPACES_ALIAS` names the alias, `spaces` by default. The tests use `spaces_test`.
+- Kibana runs beside it at `localhost:5601` for inspecting the index. The app doesn't use it.
 
 ### Index (`spaces_v1`, read through alias `spaces`)
 
 | Field | Type | Notes |
 |---|---|---|
-| `title` | `text` (english) + `search_as_you_type` subfield | boost ×3 |
+| `id` | `integer` | last sort key; sorting on `_id` is disabled by default and `_doc` order isn't stable |
+| `title` | `text` (english) + `title.prefix` subfield (edge n-grams 2–15) | boost ×3 (prefix ×2) |
 | `description` | `text` (english) | |
 | `city`, `state`, `postal_code` | `keyword` with lowercase normalizer | exact / prefix filters, sort |
 | `location` | `geo_point` | built from latitude/longitude; omitted when null |
@@ -90,66 +106,42 @@ Point an alias at the versioned index. A mapping change then means: build `space
 
 ### Sync
 
-1. `caches/space.py`: add `search_dirty_key = "space:search:dirty"` with `mark_search_dirty(*ids)` and `pop_search_dirty(limit)`. These copy the view-count helpers.
+1. `caches/space.py`: add `search_dirty_key = "space:index:dirty"` (kept out of `space:search:*`, which holds only cached results) with `mark_search_dirty(*ids)` and `pop_search_dirty(limit)`. These copy the view-count helpers.
 2. `crud/spaces.py`: call `mark_search_dirty(space.id)` in `create_space` and `_update_space`. That covers renew, update, hide/show and not-accepting.
 3. `jobs/search_index_sync.py`: loop every ~2 s. Pop up to 500 ids, `batch_get_spaces`, then `async_bulk` index for rows found and delete for ids not found. On error, put the ids back in the dirty set (same pattern as `flush_view_counts`). Start and cancel it in `lifespan`.
-4. `scripts/reindex_spaces.py`: page through all spaces and bulk-index them. Use it for the first backfill and for rebuilds, like `scripts/backfill_geocodes.py`.
+4. `scripts/reindex_spaces.py`: page through all spaces and bulk-index them. Use it for the first backfill and for rebuilds, like `scripts/backfill_geocodes.py`. `--rebuild` fills a new versioned index, switches the alias and requeues listings changed during the copy.
+5. `scripts/backfill_geocodes.py` writes coordinates directly, so it marks each listing it updates.
 
 ### Query (`crud/search.py`, called from `search_space_ids`)
 
-```python
-must = []
-if f.keyword:
-    must.append({"multi_match": {
-        "query": f.keyword,
-        "fields": ["title^3", "title.prefix^2", "description"],
-        "fuzziness": "AUTO",
-        "type": "best_fields",
-    }})
-filters = [
-    {"term": {"is_active": True}},
-    {"range": {"expired_at": {"gt": "now"}}},
-]
-if not f.show_non_accepting:
-    filters.append({"term": {"not_accepting": False}})
-if f.city:        filters.append({"term": {"city": f.city}})
-if f.state:       filters.append({"term": {"state": f.state}})
-if f.postal_code: filters.append({"prefix": {"postal_code": f.postal_code}})
-if f.available_from: filters.append({"range": {"available_from": {"lte": f.available_from}}})
-if f.available_to:   filters.append({"range": {"available_to": {"gte": f.available_to}}})
-if f.price_type:  filters.append({"term": {"price_type": f.price_type}})
-# min_price / max_price -> one range on price
-if f.has_bounds:
-    filters.append({"geo_bounding_box": {"location": {
-        "top_left": {"lat": f.north, "lon": f.west},
-        "bottom_right": {"lat": f.south, "lon": f.east},
-    }}})
-
-resp = await es.search(
-    index="spaces",
-    query={"bool": {"must": must or [{"match_all": {}}], "filter": filters}},
-    sort=sort_clause(f) + [{"_doc": "asc"}],
-    size=CACHE_SPACES_COUNT,
-    _source=False,
-)
-ids = [int(hit["_id"]) for hit in resp["hits"]["hits"]]
-```
-
-Wrap the call in `try/except` for ES connection and transport errors, and fall back to the current SQL code path (move it into `_search_space_ids_sql`).
+- `build_space_query(filters)` is a pure function:
+  - **`must`:** a `multi_match` on `title^3, title.prefix^2, description` with `fuzziness: AUTO`, or `match_all` when there's no keyword.
+  - **`filter`:** mirrors every SQL condition: active, `expired_at > now`, not accepting, city/state `term` and postal-code `prefix` (all lowercased), date ranges, price type and range, `geo_bounding_box`.
+- `sort_clause(filters)`:
+  - a keyword with no `sort` uses `_score`;
+  - otherwise price, location (state, city, postal code, with `missing: _first` on descending sorts to match Postgres NULL order) or `created_at`;
+  - always followed by `id asc`.
+- `es_search_space_ids` asks for up to 500 ids with `_source` off. On a transport or API error it raises `SearchUnavailable` and skips the index for 30 seconds (a circuit breaker), so an outage costs one timeout, not one per search.
+- `search_space_ids` in `crud/spaces.py`:
+  - checks the Redis id cache, then tries the index;
+  - on `SearchUnavailable`, returns `_search_space_ids_sql` (the old query, unchanged) **without caching it**, so searches go back to the index once it recovers.
+- **Frontend:** `Search.jsx` adds a "Best match" sort that sends no `sort`. It's the default when there's a keyword; "Newest" stays the default without one.
 
 ## Consequences
 
 - **Easier:** relevance-ranked, typo-tolerant search; search-as-you-type suggestions (a `/api/spaces/suggest` endpoint becomes cheap); aggregations for the analytics phase; the keyword path no longer scans the whole table.
-- **Harder:** one more stateful service to run, back up and keep in memory. Search results can lag writes by a few seconds, and the 5-minute Redis search cache already does that. Tests need either an ES container or a fake client.
+- **Harder:** one more stateful service to run, back up and keep in memory. Search results can lag writes by a few seconds, and the 5-minute Redis search cache already does that. The existing tests run with `SEARCH_BACKEND=sql`. `tests/search_test.py` adds unit tests for the query builder, job and fallback, plus integration tests against the docker-compose cluster that skip when it isn't running.
 - **Revisit:** turn on security and API keys before any deployment. Decide whether `view_count` belongs in the index. Check whether the 500-id cap still fits once relevance ranking exists, since `search_after` could replace it. If the data stays small, A might have been enough.
 
 ## Action Items
 
-1. [ ] Add the `elasticsearch` service, volume, env var and client dependency.
-2. [ ] `config/es_config.py` with connect/disconnect, the index mapping and the alias bootstrap; wire it into `lifespan`.
-3. [ ] Dirty-set helpers in `caches/space.py`; mark ids in `create_space` and `_update_space`.
-4. [ ] `jobs/search_index_sync.py`, started in `lifespan`.
-5. [ ] `scripts/reindex_spaces.py`; run it once to backfill.
-6. [ ] `crud/search.py` query builder; `search_space_ids` uses it with SQL fallback; teach `_effective_sort` the relevance default.
-7. [ ] Tests: query-builder unit tests (pure dict output), a sync job test with a fake client, and one integration test against a real ES container (CI only).
-8. [ ] Update `docs/ProjectArchitecture.md` and `docs/ApiDocumentation.md` (new `sort=relevance` behaviour).
+1. [x] Add the `elasticsearch` and `kibana` services, volume, env vars and client dependency.
+2. [x] `config/es_config.py` with connect/disconnect and the alias helpers, the listing mapping in `indices/spaces.py`; wire it into `lifespan`.
+3. [x] Dirty-set helpers in `caches/space.py`; mark ids in `create_space` and `_update_space`.
+4. [x] `jobs/search_index_sync.py`, started in `lifespan`.
+5. [x] `scripts/reindex_spaces.py`; run it once to backfill.
+6. [x] `crud/search.py` query builder; `search_space_ids` uses it with SQL fallback; teach `_effective_sort` the relevance default.
+7. [x] Tests: `tests/search_test.py` (unit, job, fallback and live-index tests).
+8. [x] Update `docs/ProjectArchitecture.md` and `docs/ApiDocumentation.md`.
+9. [x] "Best match" sort in `frontend/src/pages/Search.jsx`.
+10. [ ] Before deploying: turn on xpack security and use an API key; schedule a nightly `reindex_spaces` run.

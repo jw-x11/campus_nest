@@ -12,6 +12,9 @@ view_count_cache_key = "space:view_count:{id}"
 view_dirty_key = "space:view:dirty"
 spaces_owner_key = "space:user:{user_id}"
 space_search_key = "space:search:{digest}"
+# Listings changed since the search index last saw them. Drained by jobs/search_index_sync.py.
+# Not under space:search:, which holds only cached result ids.
+search_dirty_key = "space:index:dirty"
 # Must outlive the flush interval, or unflushed views expire with the key.
 VIEW_COUNT_TTL = 1 * DAY
 
@@ -49,8 +52,10 @@ def _folded(value: str | None) -> str | None:
 
 
 def _effective_sort(filters: SpaceSearchQuery) -> tuple[str, str]:
-    # Match get_space_list: missing sort is newest first, same as post_date desc.
-    if filters.sort_by == "price":
+    # Match the search: a keyword with no sort ranks by relevance, any other missing sort is newest first.
+    if filters.sort_by is None and filters.keyword:
+        sort_by, default_order = "relevance", "desc"
+    elif filters.sort_by == "price":
         sort_by, default_order = "price", "asc"
     elif filters.sort_by == "location":
         sort_by, default_order = "location", "asc"
@@ -162,6 +167,24 @@ async def mark_view_counts_dirty(space_ids: list[int]) -> None:
         await redis_client.sadd(view_dirty_key, *space_ids)
     except Exception as e:
         print(f"Error marking view counts dirty: {e}")
+
+async def mark_search_dirty(*space_ids: int) -> None:
+    """Queue listings for the search index. A failure is only logged; reindex_spaces.py catches it up."""
+    if not space_ids:
+        return
+    try:
+        await redis_client.sadd(search_dirty_key, *space_ids)
+    except Exception as e:
+        print(f"Error marking search dirty: {e}")
+
+async def pop_search_dirty(limit: int) -> list[int]:
+    """Remove and return up to limit queued listing ids. Each id goes to exactly one caller."""
+    try:
+        ids = await redis_client.spop(search_dirty_key, limit)
+        return [int(space_id) for space_id in ids or []]
+    except Exception as e:
+        print(f"Error popping search dirty ids: {e}")
+        return []
 
 async def mget_view_counts_cache(space_ids: list[int]) -> list[int | None]:
     """Cached totals for these ids, in the same order. Expired counters are None."""

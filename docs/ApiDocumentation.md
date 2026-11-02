@@ -309,9 +309,17 @@ Search/list with filters. **Cached in Redis.**
   - With a map area, only listings whose `latitude`/`longitude` fall inside it (listings without
     coordinates are left out). The area is first grown outward to a grid about 1/8 of its size, so
     small pans of the map give the same bounds and share one cache entry.
-  - Sort by **relevance (date-match quality) then price**.
-  - Cache: hash the normalized query → `search:{hash}` (TTL 5 min). Invalidate on any listing
-    create/update/delete.
+  - Answered by the Elasticsearch index (see ADR-002), which returns listing ids; the response is
+    then built from the Redis detail cache and Postgres. When the index is unreachable, or
+    `SEARCH_BACKEND=sql`, the same filters run in Postgres instead.
+  - Keyword (`kw`): matches title and description, with stemming ("studios" finds "studio"), typo
+    tolerance and prefixes. Street addresses are not searched. The Postgres fallback matches
+    title, description and address with `ILIKE`.
+  - Sort (`sort`, `order`): `post_date` (default `desc`), `price` (default `asc`), `location`
+    (state, city, postal code). With a keyword and no `sort`, results are ordered by
+    **relevance**; without a keyword, by newest first. Ties are broken by id.
+  - Cache: hash the normalized query → `space:search:{hash}` (TTL 5 min). Listing changes reach
+    the index within about 2 seconds, so a cached result can be up to 5 minutes behind.
 - **Errors:** `400` invalid filters, including partial or inverted map bounds.
 
 ### 3.2a `GET /spaces/pins`

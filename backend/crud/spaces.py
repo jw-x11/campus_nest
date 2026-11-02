@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 from schemas.spaces import PIN_LIMIT, SpaceInfoRequest, SpacePin, SpaceSearchQuery
 from caches.space import *
+from config.es_config import search_enabled
+from crud.search import SearchUnavailable, es_search_space_ids
 from models.spaces import Space, SpaceImage
 from utils.images import resize_long_edge
 from utils.s3 import read_image
@@ -40,6 +42,7 @@ async def create_space(db: AsyncSession, body: SpaceInfoRequest, user_id: UUID):
     await delete_space_cache(space.id)
     await delete_view_count_cache(space.id)
     await delete_spaces_by_owner_cache(user_id)
+    await mark_search_dirty(space.id)
     return space
 
 
@@ -75,13 +78,17 @@ async def get_space_record(db: AsyncSession, space_id: int) -> Space | None:
 
 
 async def _update_space(db: AsyncSession, space_id: int, stm) -> bool:
-    """Run an UPDATE on one listing, then drop its detail cache and its owner's list cache. False when no row matched."""
+    """
+    Run an UPDATE on one listing, then drop its detail cache and its owner's list cache and queue it
+    for the search index. False when no row matched.
+    """
     owner_id = (await db.execute(stm.returning(Space.owner_id))).scalar_one_or_none()
     await db.commit()
     if owner_id is None:
         return False
     await delete_space_cache(space_id)
     await delete_spaces_by_owner_cache(owner_id)
+    await mark_search_dirty(space_id)
     return True
 
 
@@ -212,13 +219,30 @@ async def hydrate_space_list(db: AsyncSession, space_ids: list[int]) -> list[Spa
 async def search_space_ids(db: AsyncSession, filters: SpaceSearchQuery) -> list[int]:
     """
     Ids of active, unexpired listings matching the filters, in sort order, up to CACHE_SPACES_COUNT.\n
-    Paging is ignored. The ids are cached in Redis for a few minutes.
+    Paging is ignored. Answered by the search index, or by Postgres when it is off or unreachable.
+    The ids are cached in Redis for a few minutes.
     """
     cache_key = space_search_cache_key(filters)
     cached_ids = await get_space_search_ids(cache_key)
     if cached_ids is not None:
         return cached_ids
 
+    if search_enabled():
+        try:
+            space_ids = await es_search_space_ids(filters)
+        except SearchUnavailable as e:
+            print(f"Search index unavailable, using SQL search: {e}")
+            # Not cached, so searches go back to the index as soon as it recovers.
+            return await _search_space_ids_sql(db, filters)
+    else:
+        space_ids = await _search_space_ids_sql(db, filters)
+
+    await cache_space_search_results(cache_key, space_ids)
+    return space_ids
+
+
+async def _search_space_ids_sql(db: AsyncSession, filters: SpaceSearchQuery) -> list[int]:
+    """The search in Postgres. A keyword matches title, description or address; there is no relevance order."""
     conditions = [Space.is_active.is_(True), Space.expired_at > datetime.now(timezone.utc)]
     # build condition for database query
     if not filters.show_non_accepting:
@@ -271,11 +295,7 @@ async def search_space_ids(db: AsyncSession, filters: SpaceSearchQuery) -> list[
            .limit(CACHE_SPACES_COUNT))
 
     result = await db.execute(stm)
-    space_ids = list(result.scalars().all())
-
-    # write back to cache
-    await cache_space_search_results(cache_key, space_ids)
-    return space_ids
+    return list(result.scalars().all())
 
 
 async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[SpaceItem], int]:

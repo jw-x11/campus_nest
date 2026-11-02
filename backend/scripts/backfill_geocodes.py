@@ -12,7 +12,7 @@ import asyncio
 from sqlalchemy import or_, select, update
 
 import models.users  # noqa: F401  (registers the users table the spaces foreign key points at)
-from caches.space import delete_space_cache, delete_spaces_by_owner_cache
+from caches.space import delete_space_cache, delete_spaces_by_owner_cache, mark_search_dirty
 from config.db_config import SessionLocal, engine
 from crud.map import GeocodeUnavailable, geocode_address
 from models.spaces import Space
@@ -49,6 +49,8 @@ async def backfill() -> tuple[int, int]:
             await db.commit()
             await delete_space_cache(space.id)
             await delete_spaces_by_owner_cache(space.owner_id)
+            # The running app's sync job picks this up and indexes the new location.
+            await mark_search_dirty(space.id)
             updated += 1
             print(f"  #{space.id}: {latitude}, {longitude}")
         return updated, skipped

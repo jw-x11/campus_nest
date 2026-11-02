@@ -53,6 +53,9 @@ if make_url(TEST_DATABASE_URL).database == make_url(_DEV_DATABASE_URL).database:
 # load_dotenv() in the config modules does not override variables that are already set.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["REDIS_URI"] = TEST_REDIS_URI
+# Search runs on Postgres unless a test turns the index on (search_test.py), and then uses its own alias.
+os.environ["SEARCH_BACKEND"] = "sql"
+os.environ["ES_SPACES_ALIAS"] = "spaces_test"
 
 import asyncpg  # noqa: E402
 import bcrypt  # noqa: E402
