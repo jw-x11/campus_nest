@@ -166,8 +166,9 @@ Postgres is the source of truth; Elasticsearch is a read index for `GET /spaces/
   `jobs/search_index_sync.py` drains it every 2 seconds, reloads those rows and bulk-writes them
   (or deletes ids whose row is gone).
 - **Query:** `crud/search.py` builds the query and returns ids; `search_space_ids` in
-  `crud/spaces.py` caches and hydrates them as before. If the index fails, search runs in Postgres
-  and the index is skipped for 30 seconds.
+  `crud/spaces.py` caches and hydrates them as before. Map pins are read from the index's
+  documents directly (`es_search_space_pins`, cached as `space:pins:{hash}`), so `/pins` makes no
+  Postgres query. If the index fails, search runs in Postgres and the index is skipped for 30 seconds.
 - **Backfill / rebuild:** `python -m scripts.reindex_spaces` writes every listing;
   `--rebuild` builds a new index with the current mapping and switches the alias to it.
 - **Tests:** run with `SEARCH_BACKEND=sql`; `tests/search_test.py` uses the alias `spaces_test`
@@ -182,6 +183,7 @@ Postgres is the source of truth; Elasticsearch is a read index for `GET /spaces/
 | `space:{id}`                     | JSON          | 10 min    | Space detail cache     |
 | `search:{hash}`                  | JSON array    | 5 min     | Search results cache   |
 | `space:index:dirty`              | set of ids    | none      | Listings waiting to be written to the search index |
+| `space:pins:{hash}`              | JSON          | 5 min     | Map pins read from the search index |
 | `lock:booking:{space_id}:{date}` | `1`           | 10 min    | Date availability lock |
 | `rate:{ip}:{endpoint}`           | counter       | 60 sec    | Rate limiting          |
 | `rating:{space_id}`              | float         | 1 hour    | Cached avg rating      |

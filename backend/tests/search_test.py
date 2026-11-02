@@ -171,6 +171,19 @@ class TestSqlFallback:
         assert ids(resp.json()["data"]["spaces"]) == [space["id"]]
         assert await redis_client.keys("space:search:*") == []
 
+    async def test_unreachable_index_pins_fall_back_to_postgres(self, client, register, create_space, monkeypatch):
+        async def unavailable(*args):
+            raise SearchUnavailable("down")
+
+        monkeypatch.setattr(es_config, "SEARCH_BACKEND", "elasticsearch")
+        monkeypatch.setattr(crud.spaces, "es_search_space_ids", unavailable)
+        monkeypatch.setattr(crud.spaces, "es_search_space_pins", unavailable)
+        space = await create_space(await register(), title="Campus", **INSIDE)
+
+        resp = await client.get("/api/spaces/pins", params=CAMPUS)
+        assert [pin["id"] for pin in resp.json()["data"]["pins"]] == [space["id"]]
+        assert await redis_client.keys("space:pins:*") == []
+
 
 @pytest.mark.usefixtures("services")
 class TestSyncJob:
@@ -303,6 +316,30 @@ class TestIndexSearch:
 
         data = await search(client, "/api/spaces/pins", **CAMPUS)
         assert [pin["id"] for pin in data["pins"]] == [inside["id"]]
+
+    async def test_pins_are_read_from_the_index(self, client, register, create_space, db_execute):
+        space = await create_space(await register(), title="Campus", price=40, **INSIDE)
+        await sync()
+        # Changed behind the app's back, so only a Postgres read would see it.
+        await db_execute("UPDATE spaces SET price = 99, title = 'Changed' WHERE id = :id", id=space["id"])
+
+        data = await search(client, "/api/spaces/pins", **CAMPUS)
+        assert data["pins"] == [{"id": space["id"], "title": "Campus", "latitude": INSIDE["latitude"],
+                                 "longitude": INSIDE["longitude"], "price": 40.0, "price_type": "single"}]
+        assert data["total_count"] == 1 and data["truncated"] is False
+        assert await redis_client.keys("space:pins:*")
+
+    async def test_pins_report_truncation(self, client, register, create_space, monkeypatch):
+        owner = await register()
+        newer = None
+        for _ in range(2):
+            newer = await create_space(owner, **INSIDE)
+        await sync()
+        monkeypatch.setattr(crud.spaces, "PIN_LIMIT", 1)
+
+        data = await search(client, "/api/spaces/pins", **CAMPUS)
+        assert [pin["id"] for pin in data["pins"]] == [newer["id"]]
+        assert data["total_count"] == 2 and data["truncated"] is True
 
     async def test_deleted_row_is_removed_from_the_index(self, register, create_space, db_execute):
         space = await create_space(await register())

@@ -125,6 +125,9 @@ Point an alias at the versioned index. A mapping change then means: build `space
 - `search_space_ids` in `crud/spaces.py`:
   - checks the Redis id cache, then tries the index;
   - on `SearchUnavailable`, returns `_search_space_ids_sql` (the old query, unchanged) **without caching it**, so searches go back to the index once it recovers.
+- **Map pins skip Postgres.** Every pin field is already indexed: title, `location`, price and price type. So `get_space_pins` makes one search that returns those fields (`es_search_space_pins`, `size=300`, `track_total_hits=500`) and caches the pins in Redis as `space:pins:{hash}`. The hash is the same one the id cache uses.
+  - **Trade-off:** pin prices and titles can trail an edit by one sync tick, about 2 seconds.
+  - **Fallback:** when the index is off or down, pins use the id search and the Postgres query as before.
 - **Frontend:** `Search.jsx` adds a "Best match" sort that sends no `sort`. It's the default when there's a keyword; "Newest" stays the default without one.
 
 ## Consequences

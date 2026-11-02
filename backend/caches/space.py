@@ -5,13 +5,15 @@ from uuid import UUID
 from sqlalchemy.orm.base import PASSIVE_ONLY_PERSISTENT
 
 from config.cache_config import *
-from schemas.spaces import SpaceItem, SpaceSearchQuery
+from schemas.spaces import SpaceItem, SpacePin, SpaceSearchQuery
 
 space_cache_key = "space:details:{id}"
 view_count_cache_key = "space:view_count:{id}"
 view_dirty_key = "space:view:dirty"
 spaces_owner_key = "space:user:{user_id}"
 space_search_key = "space:search:{digest}"
+# Map pins read from the search index, keyed like space:search so nearby map views share an entry.
+space_pins_key = "space:pins:{digest}"
 # Listings changed since the search index last saw them. Drained by jobs/search_index_sync.py.
 # Not under space:search:, which holds only cached result ids.
 search_dirty_key = "space:index:dirty"
@@ -64,7 +66,8 @@ def _effective_sort(filters: SpaceSearchQuery) -> tuple[str, str]:
     return sort_by, filters.sort_order or default_order
 
 
-def space_search_cache_key(filters: SpaceSearchQuery) -> str:
+def _search_digest(filters: SpaceSearchQuery) -> str:
+    """Hash of the filters that change a search result, so equivalent queries share a cache entry."""
     payload = filters.model_dump(
         mode="json",
         include={
@@ -91,8 +94,15 @@ def space_search_cache_key(filters: SpaceSearchQuery) -> str:
     payload["postal_code"] = _folded(payload["postal_code"])
     payload["sort_by"], payload["sort_order"] = _effective_sort(filters)
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    return space_search_key.format(digest=digest)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def space_search_cache_key(filters: SpaceSearchQuery) -> str:
+    return space_search_key.format(digest=_search_digest(filters))
+
+
+def space_pins_cache_key(filters: SpaceSearchQuery) -> str:
+    return space_pins_key.format(digest=_search_digest(filters))
 
 
 
@@ -120,6 +130,20 @@ async def mget_space_details(space_ids: list[int]) -> list[SpaceItem]:
 
 async def cache_space_search_results(key: str, ids: list[int]) -> list[SpaceItem]:
     await set_cache(key, ids, SPACE_SEARCH_CACHE_TTL + get_random_ttl_offset(SPACE_SEARCH_TTL_JITTER))
+
+
+async def get_space_pins_cache(cache_key: str) -> tuple[list[SpacePin], int] | None:
+    """Pins and match count for a map search read from the index, or None when not cached."""
+    cached = await get_json_cache(cache_key)
+    if cached is None:
+        return None
+    return [SpacePin.model_validate(pin) for pin in cached["pins"]], cached["total"]
+
+
+async def set_space_pins_cache(cache_key: str, pins: list[SpacePin], total: int) -> bool:
+    """Same lifetime as the id search cache."""
+    payload = {"pins": [pin.model_dump(mode="json") for pin in pins], "total": total}
+    return await set_cache(cache_key, payload, SPACE_SEARCH_CACHE_TTL + get_random_ttl_offset(SPACE_SEARCH_TTL_JITTER))
 
 
 async def delete_view_count_cache(space_id: int) -> bool:

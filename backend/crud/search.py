@@ -5,7 +5,7 @@ from elasticsearch import ApiError, TransportError
 from caches.space import CACHE_SPACES_COUNT
 from config import es_config
 from indices.spaces import SPACES_ALIAS
-from schemas.spaces import SpaceSearchQuery
+from schemas.spaces import SpacePin, SpaceSearchQuery
 
 # After a failed request, skip the index for this long so every search does not wait on a dead cluster.
 UNAVAILABLE_BACKOFF_SECONDS = 30
@@ -90,22 +90,54 @@ def build_space_query(filters: SpaceSearchQuery) -> dict:
     }
 
 
-async def es_search_space_ids(filters: SpaceSearchQuery) -> list[int]:
+async def _search(filters: SpaceSearchQuery, **kwargs) -> dict:
     """
-    Ids of active, unexpired listings matching the filters, in sort order, up to CACHE_SPACES_COUNT.\n
+    Run a listing search with these filters. kwargs are extra es.search arguments.\n
     Raises SearchUnavailable when the index cannot answer, and for a while after that.
     """
     global _unavailable_until
     if time.monotonic() < _unavailable_until:
         raise SearchUnavailable("search index recently failed")
     try:
-        resp = await es_config.es.search(
-            index=SPACES_ALIAS,
-            size=CACHE_SPACES_COUNT,
-            source=False,
-            **build_space_query(filters),
-        )
+        return await es_config.es.search(index=SPACES_ALIAS, **build_space_query(filters), **kwargs)
     except (ApiError, TransportError) as e:
         _unavailable_until = time.monotonic() + UNAVAILABLE_BACKOFF_SECONDS
         raise SearchUnavailable(str(e)) from e
+
+
+async def es_search_space_ids(filters: SpaceSearchQuery) -> list[int]:
+    """
+    Ids of active, unexpired listings matching the filters, in sort order, up to CACHE_SPACES_COUNT.\n
+    Raises SearchUnavailable when the index cannot answer.
+    """
+    resp = await _search(filters, size=CACHE_SPACES_COUNT, source=False)
     return [int(hit["_id"]) for hit in resp["hits"]["hits"]]
+
+
+# Every field a map pin shows is already in the index, so pins need no database query.
+PIN_SOURCE_FIELDS = ["title", "location", "price", "price_type"]
+
+
+async def es_search_space_pins(filters: SpaceSearchQuery, limit: int) -> tuple[list[SpacePin], int]:
+    """
+    Pins for the first limit matches in sort order, read from the index, and the match count
+    up to CACHE_SPACES_COUNT (the same cap as the id search). Raises SearchUnavailable.
+    """
+    resp = await _search(
+        filters, size=limit, source_includes=PIN_SOURCE_FIELDS, track_total_hits=CACHE_SPACES_COUNT
+    )
+    pins = []
+    for hit in resp["hits"]["hits"]:
+        source = hit["_source"]
+        # A map search filters on location, so every hit has one; this only guards odd documents.
+        if "location" not in source:
+            continue
+        pins.append(SpacePin(
+            id=int(hit["_id"]),
+            title=source["title"],
+            latitude=source["location"]["lat"],
+            longitude=source["location"]["lon"],
+            price=source["price"],
+            price_type=source["price_type"],
+        ))
+    return pins, min(resp["hits"]["total"]["value"], CACHE_SPACES_COUNT)

@@ -338,6 +338,10 @@ Map pins for every listing in a city-sized area. Takes the same query params as 
 - **Logic**
   - Returns at most **300** pins, newest first by default. `truncated` is `true` when more matched;
     `total_count` counts matches up to 500.
+  - With the search index on, pins (title, coordinates, price, price type) come straight from
+    Elasticsearch in one request, cached in Redis as `space:pins:{hash}` for about 5 minutes.
+    They can trail a listing edit by about 2 seconds. When the index is off or unreachable, the
+    matching ids are searched and the pin fields loaded from Postgres.
 - **Errors:** `400 BOUNDS_REQUIRED`, `400 AREA_TOO_LARGE`, `400` invalid filters.
 
 ### 3.3 `GET /spaces/{id}`

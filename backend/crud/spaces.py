@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from schemas.spaces import PIN_LIMIT, SpaceInfoRequest, SpacePin, SpaceSearchQuery
 from caches.space import *
 from config.es_config import search_enabled
-from crud.search import SearchUnavailable, es_search_space_ids
+from crud.search import SearchUnavailable, es_search_space_ids, es_search_space_pins
 from models.spaces import Space, SpaceImage
 from utils.images import resize_long_edge
 from utils.s3 import read_image
@@ -309,8 +309,18 @@ async def get_space_list(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
 async def get_space_pins(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[list[SpacePin], int, bool]:
     """
     Map pins for the first PIN_LIMIT matches in sort order, the total cached match count, and
-    whether matches were left out because of PIN_LIMIT.
+    whether matches were left out because of PIN_LIMIT.\n
+    With the search index on, pins are read from it in one request. Otherwise, or when it is
+    unreachable, the matching ids are searched and the pin fields loaded from Postgres.
     """
+    if search_enabled():
+        try:
+            pins, total = await _get_space_pins_from_index(filters)
+            return pins, total, total > PIN_LIMIT
+        except SearchUnavailable:
+            # search_space_ids logs the failure and runs the SQL search.
+            pass
+
     space_ids = await search_space_ids(db, filters)
     pin_ids = space_ids[:PIN_LIMIT]
     truncated = len(space_ids) > PIN_LIMIT
@@ -324,6 +334,17 @@ async def get_space_pins(db: AsyncSession, filters: SpaceSearchQuery) -> tuple[l
     pins = [SpacePin.model_validate(rows[space_id]) for space_id in pin_ids
             if space_id in rows and rows[space_id].latitude is not None and rows[space_id].longitude is not None]
     return pins, len(space_ids), truncated
+
+
+async def _get_space_pins_from_index(filters: SpaceSearchQuery) -> tuple[list[SpacePin], int]:
+    """Pins and match count from the index, cached in Redis like the id search. Raises SearchUnavailable."""
+    cache_key = space_pins_cache_key(filters)
+    cached = await get_space_pins_cache(cache_key)
+    if cached is not None:
+        return cached
+    pins, total = await es_search_space_pins(filters, PIN_LIMIT)
+    await set_space_pins_cache(cache_key, pins, total)
+    return pins, total
 
 
 
