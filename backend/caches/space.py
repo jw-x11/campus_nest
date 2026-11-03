@@ -40,7 +40,23 @@ async def set_space_cache(id: int, space: SpaceItem, ttl: int = None) -> bool:
     key = space_cache_key.format(id=id)
     space_dict = space.model_dump(mode="json") if space is not None else None
     return await set_cache(key, space_dict, ttl)
-    
+
+
+async def mset_space_cache(spaces: list[SpaceItem]) -> bool:
+    """Cache several listings in one round trip. Each key gets its own jittered TTL, as with set_space_cache."""
+    if not spaces:
+        return True
+    try:
+        async with redis_client.pipeline(transaction=False) as pipe:
+            for space in spaces:
+                value = json.dumps(space.model_dump(mode="json"), ensure_ascii=False)
+                pipe.set(space_cache_key.format(id=space.id), value, ex=_ttl())
+            await pipe.execute()
+        return True
+    except Exception as e:
+        print(f"Error setting space caches: {e}")
+        return False
+
 
 async def delete_space_cache(id: int) -> bool:
     key = space_cache_key.format(id=id)
